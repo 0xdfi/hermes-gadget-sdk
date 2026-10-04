@@ -75,9 +75,9 @@ The USB-C port is the S3's own USB. It shows up as a "USB JTAG/serial debug unit
 
 ### First flash: what to check
 
-This port is written from Waveshare's published pinout and drivers. On the first flash, go through this list and send the serial log (`pio device monitor` or `hermes-gadget console --port COMx`) for anything that looks wrong:
+This port is written from Waveshare's published pinout and drivers. On the first flash, go through this list, and for anything that looks wrong send the report from `hermes-gadget diag --port COMx`:
 
-1. **Boot log:** `CO5300 466x466 ready`, `codecs: speaker ready, microphones ready` and `touch ready, key ready`. A `did not answer` or `missing` line names the part to look at.
+1. **Boot log:** `CO5300 466x466 ready`, `codecs: speaker ready, microphones ready` and `touch ready, key ready`. A `did not answer` or `missing` line names the part to look at. The `hg.diag` lines sum it up: reset reason, memory, and `parts: display co5300, microphone es7210, speaker es8311, touch yes, key yes`. In the `diag` report, `i2c` should include `0x18` (ES8311), `0x20` (TCA9554), `0x34` (AXP2101), `0x40` (ES7210) and `0x5a` (CST9217).
 2. **Console:** `hermes-gadget console --port COMx` on the USB-C port answers `status`. If the log shows but commands get no answer, the console is still on UART0.
 3. **Screen:** the mascot is centred, upright and not mirrored, and the colours are right (amber accents, not blue). A thin stripe at one edge means the column offset is off.
 4. **Touch:** hold the screen and the listening waves appear; a swipe *down* (not up) cancels. A reversed swipe means the touch mirroring needs flipping.
@@ -131,6 +131,8 @@ gadget> status
 | Command | Meaning |
 |---|---|
 | `status` | JSON status |
+| `diag` | JSON diagnostics: build, reset reason, memory, Wi-Fi, which parts came up, I2C addresses that answer, task stacks, connection |
+| `diag log` | The last few KB of log lines, kept in RAM since boot |
 | `get <key>` | Read a setting (secrets are masked) |
 | `set <key> <value>` | Write a setting; an empty value clears it |
 | `say <text>` | Send a typed message |
