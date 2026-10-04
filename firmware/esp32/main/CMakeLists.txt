@@ -30,6 +30,7 @@ idf_component_register(
         esp_event
         esp_lcd
         esp_netif
+        esp_psram
         esp_timer
         esp_wifi
         console
