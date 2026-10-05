@@ -1,0 +1,10 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/build-aipi-lite/x509_crt_bundle.S
+

@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE
+  "config/sdkconfig.h"
+  "config/sdkconfig.cmake"
+  "bootloader/bootloader.elf"
+  "bootloader/bootloader.bin"
+  "bootloader/bootloader.map"
+  "hermes_gadget.bin"
+  "flash_project_args"
+  "hermes_gadget.map"
+  "project_elf_src_esp32s3.c"
+)

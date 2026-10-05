@@ -87,6 +87,10 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   dac.use_mclk = true;
   dac.hw_gain.pa_voltage = cfg.amp_supply_v;
   dac.hw_gain.codec_dac_voltage = 3.3;
+  // The ES8311 has an integrated ADC. When the board routes the mic through
+  // it, create one dev in BOTH mode and share it for input and output.
+  esp_codec_dev_handle_t es8311_both = nullptr;
+  if (cfg.mic_via_es8311) dac.codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH;
   esp_codec_dev_cfg_t out_cfg = {};
   out_cfg.dev_type = ESP_CODEC_DEV_TYPE_OUT;
   if (cfg.speaker == SpeakerCodec::Aw88298) {
@@ -101,26 +105,32 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   out_cfg.data_if = data_if;
   out_ = out_cfg.codec_if ? esp_codec_dev_new(&out_cfg) : nullptr;
 
-  audio_codec_i2c_cfg_t adc_i2c = {};
-  adc_i2c.port = I2C_NUM_0;
-  adc_i2c.addr = ES7210_CODEC_DEFAULT_ADDR;
-  adc_i2c.bus_handle = bus;
-  es7210_codec_cfg_t adc = {};
-  adc.ctrl_if = audio_codec_new_i2c_ctrl(&adc_i2c);
-  adc.mic_selected = kMic1And2;
-  esp_codec_dev_cfg_t in_cfg = {};
-  in_cfg.dev_type = ESP_CODEC_DEV_TYPE_IN;
-  in_cfg.codec_if = es7210_codec_new(&adc);
-  in_cfg.data_if = data_if;
-  in_ = in_cfg.codec_if ? esp_codec_dev_new(&in_cfg) : nullptr;
+  if (cfg.mic_via_es8311) {
+    // Same ES8311 dev serves input in BOTH mode; no separate ES7210 on this bus.
+    in_ = out_;
+  } else {
+    audio_codec_i2c_cfg_t adc_i2c = {};
+    adc_i2c.port = I2C_NUM_0;
+    adc_i2c.addr = ES7210_CODEC_DEFAULT_ADDR;
+    adc_i2c.bus_handle = bus;
+    es7210_codec_cfg_t adc = {};
+    adc.ctrl_if = audio_codec_new_i2c_ctrl(&adc_i2c);
+    adc.mic_selected = kMic1And2;
+    esp_codec_dev_cfg_t in_cfg = {};
+    in_cfg.dev_type = ESP_CODEC_DEV_TYPE_IN;
+    in_cfg.codec_if = es7210_codec_new(&adc);
+    in_cfg.data_if = data_if;
+    in_ = in_cfg.codec_if ? esp_codec_dev_new(&in_cfg) : nullptr;
+  }
 
-  // Both stay open at one rate: they share the I2S clocks.
+  // Both stay open at one rate: they share the I2S clocks. In BOTH mode a single
+  // open call brings up both directions; a second open would fail, so skip it.
   esp_codec_dev_sample_info_t fs = {};
   fs.sample_rate = kRate;
   fs.channel = 1;
   fs.bits_per_sample = 16;
   if (out_ && esp_codec_dev_open(out_, &fs) != ESP_CODEC_DEV_OK) out_ = nullptr;
-  if (in_ && esp_codec_dev_open(in_, &fs) != ESP_CODEC_DEV_OK) in_ = nullptr;
+  if (in_ && in_ != out_ && esp_codec_dev_open(in_, &fs) != ESP_CODEC_DEV_OK) in_ = nullptr;
   if (out_) {
     esp_codec_dev_set_out_vol(out_, 70);
     esp_codec_dev_set_out_mute(out_, true);  // unmuted while something plays

@@ -1,0 +1,25 @@
+esp-idf/esp_system/CMakeFiles/__idf_esp_system.dir/port/arch/xtensa/debug_stubs.c.obj: \
+ /Users/daffi/esp/esp-idf/components/esp_system/port/arch/xtensa/debug_stubs.c \
+ /Users/daffi/esp/esp-idf/components/xtensa/include/eri.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/13.2.0/include/stdint.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/stdint.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/machine/_default_types.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/sys/features.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/_newlib_version.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/sys/_intsup.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/sys/_stdint.h \
+ /Users/daffi/esp/esp-idf/components/xtensa/include/xtensa-debug-module.h \
+ /Users/daffi/esp/esp-idf/components/xtensa/esp32s3/include/xtensa/config/core-isa.h \
+ /Users/daffi/esp/esp-idf/components/log/include/esp_log.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/13.2.0/include/stdarg.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/inttypes.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/newlib.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/sys/config.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/machine/ieeefp.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/_ansi.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/13.2.0/include/stddef.h \
+ /Users/daffi/.espressif/tools/xtensa-esp-elf/esp-13.2.0_20240530/xtensa-esp-elf/xtensa-esp-elf/include/sys/_locale.h \
+ /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/build-aipi-lite/config/sdkconfig.h \
+ /Users/daffi/esp/esp-idf/components/esp_rom/include/esp_rom_sys.h \
+ /Users/daffi/esp/esp-idf/components/soc/esp32s3/include/soc/reset_reasons.h \
+ /Users/daffi/esp/esp-idf/components/log/include/esp_log_internal.h

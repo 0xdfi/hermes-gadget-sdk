@@ -58,6 +58,7 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
+  bool mic_via_es8311 = false;  // true: mic input is the ES8311 ADC, no separate ES7210
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
