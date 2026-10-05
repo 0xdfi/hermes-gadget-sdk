@@ -276,6 +276,8 @@ class App {
   uint32_t reply_until_ = 0;  // reply text shown on the Ready screen until then
   bool cancel_held_ = false;
   bool cancel_long_fired_ = false;
+  int8_t volume_ramp_dir_ = 0;   // 0 = idle; +1 rising, -1 falling while Cancel is held
+  uint32_t volume_ramp_at_ = 0;  // next ramp step time
   uint32_t cancel_down_at_ = 0;
   std::string status_;
   std::string user_echo_;

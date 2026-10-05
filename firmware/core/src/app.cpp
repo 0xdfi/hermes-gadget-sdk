@@ -784,8 +784,9 @@ void App::on_button(Button button, bool pressed) {
       }
       break;
     case Button::Cancel:
-      // Short press acts on release; holding past kNewSessionHoldMs starts a new session
-      // instead (fired from tick(), so the user gets feedback without letting go).
+      // Short press acts on release (dismiss / cancel / show last reply); holding
+      // past kNewSessionHoldMs runs the volume ramp (fired from tick(), feedback
+      // without letting go). Talk+Cancel together still opens the settings chord.
       if (pressed) {
         cancel_held_ = true;
         cancel_down_at_ = now();
@@ -795,7 +796,12 @@ void App::on_button(Button button, bool pressed) {
       }
       if (!cancel_held_) return;
       cancel_held_ = false;
-      if (cancel_long_fired_) return;
+      if (cancel_long_fired_) {
+        // Ramp was running: persist the final level and stop.
+        volume_ramp_dir_ = 0;
+        if (hal_.storage) hal_.storage->set("volume", std::to_string(volume_));
+        return;
+      }
       if (prompt_showing()) {
         if (prompt_armed(cancel_down_at_)) answer_prompt(false);
       } else if (mode_ == Mode::Listening) cancel_listening("cancelled");
@@ -1298,20 +1304,35 @@ void App::tick() {
     notice_until_ = 0;
     update_model();
   }
-  if (cancel_held_ && !talk_held_ && !settings_open() && !cancel_long_fired_ && !prompt_showing()) {
+  if (cancel_held_ && !talk_held_ && !settings_open() && !prompt_showing()) {
     uint32_t held = t - cancel_down_at_;
     if (held >= kNewSessionHoldMs) {
-      cancel_long_fired_ = true;
-      start_new_session();
-      update_model();
+      if (!cancel_long_fired_) {
+        // Begin the volume ramp: rises to 100, wraps, falls to 0, loops while held.
+        cancel_long_fired_ = true;
+        volume_ramp_dir_ = 1;
+        volume_ramp_at_ = t;
+      }
+      if (volume_ramp_dir_ && static_cast<int32_t>(t - volume_ramp_at_) >= 0) {
+        volume_ramp_at_ = t + 100;
+        int v = volume_ + volume_ramp_dir_ * 4;
+        if (v >= 100) { v = 100; volume_ramp_dir_ = -1; }
+        else if (v <= 0) { v = 0; volume_ramp_dir_ = 1; }
+        volume_ = static_cast<uint8_t>(v);
+        if (hal_.speaker) hal_.speaker->set_volume(volume_);
+        set_hint_flash("Volume " + std::to_string(volume_));
+        update_model();
+      }
     } else if (held >= kNewSessionHintMs && can_talk()) {
       uint32_t left = (kNewSessionHoldMs - held + 999) / 1000;
-      std::string hint = "New session in " + std::to_string(left) + "s";
+      std::string hint = "Volume in " + std::to_string(left) + "s";
       if (hint != hint_flash_) {
         set_hint_flash(std::move(hint));
         update_model();
       }
     }
+  } else if (volume_ramp_dir_) {
+    volume_ramp_dir_ = 0;  // talk pressed or settings opened mid-ramp
   }
   if (hint_flash_until_ && static_cast<int32_t>(t - hint_flash_until_) >= 0) {
     hint_flash_.clear();

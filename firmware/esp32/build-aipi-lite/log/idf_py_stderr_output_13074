@@ -1,0 +1,44 @@
+In file included from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port.hpp:22,
+                 from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_codec.cpp:4:
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_codec.cpp: In member function 'bool hgp::CodecAudio::begin(const hgp::CodecAudioConfig&, i2c_master_bus_handle_t)':
+/Users/daffi/esp/esp-idf/components/esp_driver_i2s/include/driver/i2s_std.h:206:1: warning: missing initializer for member 'i2s_std_clk_config_t::ext_clk_freq_hz' [-Wmissing-field-initializers]
+  206 | }
+      | ^
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_codec.cpp:55:21: note: in expansion of macro 'I2S_STD_CLK_DEFAULT_CONFIG'
+   55 |   std_cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(kRate);  // MCLK = 256 x fs
+      |                     ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_codec.cpp:92:26: warning: unused variable 'es8311_both' [-Wunused-variable]
+   92 |   esp_codec_dev_handle_t es8311_both = nullptr;
+      |                          ^~~~~~~~~~~
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_touch.cpp: In member function 'bool hgp::TouchInput::read_touch(hgp::TouchSample&)':
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_touch.cpp:87:52: warning: 'bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t, uint16_t*, uint16_t*, uint16_t*, uint8_t*, uint8_t)' is deprecated: This API will be removed in version 2.0.0. Use esp_lcd_touch_get_data instead! [-Wdeprecated-declarations]
+   87 |     const bool down = esp_lcd_touch_get_coordinates(managed_touch_, &x, &y, nullptr, &points, 1);
+      |                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port.hpp:28,
+                 from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_touch.cpp:4:
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/managed_components/espressif__esp_lcd_touch/include/esp_lcd_touch.h:317:6: note: declared here
+  317 | bool esp_lcd_touch_get_coordinates(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num);
+      |      ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port.hpp:22,
+                 from /Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp:3:
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp: In function 'i2s_std_config_t hgp::{anonymous}::std_config(uint32_t, i2s_data_bit_width_t, int, int, int, int)':
+/Users/daffi/esp/esp-idf/components/esp_driver_i2s/include/driver/i2s_std.h:206:1: warning: missing initializer for member 'i2s_std_clk_config_t::ext_clk_freq_hz' [-Wmissing-field-initializers]
+  206 | }
+      | ^
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp:24:17: note: in expansion of macro 'I2S_STD_CLK_DEFAULT_CONFIG'
+   24 |   cfg.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(rate);
+      |                 ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp: In member function 'virtual bool hgp::I2sMic::start(uint32_t)':
+/Users/daffi/esp/esp-idf/components/esp_driver_i2s/include/driver/i2s_std.h:206:1: warning: missing initializer for member 'i2s_std_clk_config_t::ext_clk_freq_hz' [-Wmissing-field-initializers]
+  206 | }
+      | ^
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp:54:32: note: in expansion of macro 'I2S_STD_CLK_DEFAULT_CONFIG'
+   54 |     i2s_std_clk_config_t clk = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate);
+      |                                ^~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp: In static member function 'static void hgp::I2sSpeaker::task(void*)':
+/Users/daffi/esp/esp-idf/components/esp_driver_i2s/include/driver/i2s_std.h:206:1: warning: missing initializer for member 'i2s_std_clk_config_t::ext_clk_freq_hz' [-Wmissing-field-initializers]
+  206 | }
+      | ^
+/Users/daffi/tmp/hermes-scratch/worker2/hermes-gadget-sdk/firmware/esp32/main/port_audio.cpp:168:36: note: in expansion of macro 'I2S_STD_CLK_DEFAULT_CONFIG'
+  168 |         i2s_std_clk_config_t clk = I2S_STD_CLK_DEFAULT_CONFIG(want);
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~~~~~
