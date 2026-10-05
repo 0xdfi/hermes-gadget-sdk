@@ -1,63 +1,71 @@
-# Using Tailscale Funnel for remote access
+# Remote access with Tailscale Funnel
 
-A gadget reaches its Hermes over any network that gives it internet access. When the gadget leaves the home Wi-Fi, Tailscale Funnel on the Hermes computer lets it phone home from anywhere with no other device or tunnel app in between.
+Use Tailscale Funnel on your Hermes computer to let a gadget connect from outside your home network, including a phone hotspot. The gadget does not need Tailscale installed.
 
-## When this matters
+Funnel makes the gadget endpoint public. Device pairing still controls access to Hermes. Publish only the gadget plugin's port.
 
-The gadget stores one Wi-Fi network at a time. At home, it connects to your router and reaches the Hermes computer over the local network or tailnet. Away from home, the gadget needs a network that can reach the Hermes address you entered. Two patterns work:
+## Set up the Hermes computer
 
-- **Tailscale Funnel (recommended):** the Hermes computer publishes its gadget port on the public internet through Tailscale. The gadget connects from any network, including a phone's personal hotspot, without joining your tailnet.
-- **A reachable address on the local network:** for example, a port forward. This works but exposes more and moves with your router.
+First [connect Hermes](connect-hermes.md) and keep its gateway running. Install and sign in to [Tailscale](https://tailscale.com/docs/features/tailscale-funnel) on that computer. Your tailnet must allow Funnel; follow any authorization link the command displays.
 
-## One-time setup on the Hermes computer
-
-Tailscale must be installed and signed in to your tailnet (https://tailscale.com). Then:
-
-1. Find the gadget plugin's port:
+1. Find the device URL:
 
    ```bash
    hermes gadget info
    ```
 
-   The device URL shown here contains the port (8765 by default when configured for remote access).
+   Note its port and path. For example, `ws://192.168.1.20:8765/gadget` uses port `8765` and path `/gadget`.
 
-2. Publish that port through Funnel:
+2. Publish that port. Replace `8765` if your plugin uses another port:
 
    ```bash
-   tailscale funnel --bg <port>
+   tailscale funnel --bg 8765
+   tailscale funnel status
    ```
 
-   Tailscale prints the public funnel URL, for example `https://your-hostname.tail1234.ts.net`. Test with the same URL in a browser on a phone using mobile data.
+   Funnel prints a public HTTPS address such as `https://your-hostname.tail1234.ts.net` and proxies requests to the local gadget port. Check that the target port matches `hermes gadget info`.
 
-3. Keep Funnel enabled. The funnel survives reboots while Tailscale runs. To unpublish: `tailscale funnel reset`.
+3. Build the gadget address: change `https://` to `wss://` and append the path from step 1:
 
-Note: Tailscale Funnel terminates TLS with a Let's Encrypt certificate for your tailnet DNS name. The gadget connects over `wss://` (secure WebSocket) to the funnel URL, so enter the full `https://...` address from `tailscale funnel status` as the device URL, not a bare `ws://` address.
+   ```text
+   wss://your-hostname.tail1234.ts.net/gadget
+   ```
 
-## Configuring the gadget
+   Keep a custom path if you configured one. The gadget requires a `ws://` or `wss://` address; it does not convert HTTPS URLs. Do not add the local port `8765` to the public address.
 
-Enter the funnel URL as the Hermes address during any of these flows:
+With `--bg`, Funnel resumes after a reboot while Tailscale is running. Hermes must also be running. To remove all Funnel configuration on this computer:
 
-- The browser installer's Wi-Fi step (first flash).
-- [Phone setup](setup-board.md#set-up-wi-fi-with-your-phone) (any time).
-- USB console: `wifi-setup`.
+```bash
+tailscale funnel reset
+```
 
-The gadget has a single saved network at a time. When you leave home with a phone:
+See the [Funnel command reference](https://tailscale.com/docs/reference/tailscale-cli/funnel) for managing individual published services.
 
-1. Enable the phone's personal hotspot (2.4 GHz Wi-Fi sharing).
-2. On the gadget, open device settings and choose **Wi-Fi setup** (or power it on near home and use phone setup).
-3. Join the gadget's `Hermes-XXXX` setup network from the phone, open `http://192.168.4.1`, and enter the hotspot's name and password with the funnel URL as the Hermes address.
-4. Save. The gadget joins the hotspot and reaches Hermes through Funnel.
+## Connect the gadget
 
-The same funnel URL works on every network, so you enter it once and never again. Saved passwords and pairing survive network changes (see the notes in [Set up Wi-Fi with your phone](setup-board.md#set-up-wi-fi-with-your-phone)).
+Enter the full `wss://` address above as the Hermes address in the browser installer's Wi-Fi step, [phone setup](setup-board.md#set-up-wi-fi-with-your-phone), or the [USB console](setup-board.md#manage-an-existing-gadget).
 
-## Security notes
+To use a phone hotspot:
 
-- Funnel publishes exactly the ports you list, nothing else, and TLS terminates at the Tailscale process with an automatic certificate.
-- The gadget authenticates to the plugin at the WebSocket layer (device pairing plus token); the funnel URL alone grants no access to other gateway features.
-- Prefer a funnel URL over port forwarding on the router: no router configuration, no static exposure, and the address follows your tailnet DNS name rather than your home IP.
+1. Enable a 2.4 GHz hotspot and leave it running.
+2. Open **Wi-Fi setup** on the gadget.
+3. From a device that can join the gadget's `Hermes-XXXX` setup network, open `http://192.168.4.1`. Enter the hotspot name, password, and the full `wss://` Hermes address.
+4. Choose **Check connection and save**. Keep the hotspot available during the connection check.
 
-## Troubleshooting
+If your phone cannot keep its hotspot active while joined to the setup network, use a second phone or computer for setup, or configure the gadget through USB.
 
-- `tailscale funnel status` shows every published funnel. Verify the gadget's port is listed.
-- The gadget shows a connection error but the funnel works in a browser: check that the device URL includes `https://` (wss transport) and the exact funnel hostname.
-- Corporate or hotel networks that trap clients (captive portals) need the portal accepted on a laptop or phone first; the gadget cannot click through a portal itself. A phone hotspot avoids this entirely.
+The board stores one Wi-Fi network. A successful setup replaces its Wi-Fi credentials; a failed connection check restores the previous settings. Re-enter your home Wi-Fi credentials when you return. The same Funnel address works on both networks, and changing Wi-Fi preserves the gadget's identity and pairing with the same Hermes host.
+
+## Verify the connection
+
+Test with the gadget on a network outside your home, such as the hotspot. If it shows a pairing code, run `hermes gadget pair` on the Hermes computer and approve the matching device. Wait for **Ready**, then send a message and confirm that Hermes replies.
+
+The plugin serves a WebSocket endpoint, not a website. Opening the bare Funnel URL in a browser can return `404 Not a Hermes gadget endpoint`; this does not test pairing or a working gadget connection.
+
+## Security and troubleshooting
+
+- Funnel terminates TLS on the Hermes computer and forwards traffic to the local service. The endpoint is reachable from the public internet, even by devices outside your tailnet.
+- Device pairing and the protocol's per-device authentication still apply. If you configured an access token, the gadget also needs that token. See [authentication](protocol.md#handshake).
+- For connection errors, check `tailscale funnel status`, the local port, the `wss://` scheme, and the complete path. Confirm that Hermes is running.
+- A successful phone setup check confirms Wi-Fi connectivity. **Ready** and a reply confirm the connection to Hermes.
+- The gadget cannot complete a captive portal login. Use a network that permits its connection, such as a phone hotspot.
