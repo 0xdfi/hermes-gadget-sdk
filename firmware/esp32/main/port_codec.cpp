@@ -89,7 +89,6 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
   dac.hw_gain.codec_dac_voltage = 3.3;
   // The ES8311 has an integrated ADC. When the board routes the mic through
   // it, create one dev in BOTH mode and share it for input and output.
-  esp_codec_dev_handle_t es8311_both = nullptr;
   if (cfg.mic_via_es8311) dac.codec_mode = ESP_CODEC_DEV_WORK_MODE_BOTH;
   esp_codec_dev_cfg_t out_cfg = {};
   out_cfg.dev_type = ESP_CODEC_DEV_TYPE_OUT;

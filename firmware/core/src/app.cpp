@@ -807,7 +807,7 @@ void App::on_button(Button button, bool pressed) {
       } else if (mode_ == Mode::Listening) cancel_listening("cancelled");
       else if (overlay_ != Overlay::None) dismiss_overlay();
       else if (mode_ == Mode::Thinking || mode_ == Mode::Responding) cancel_turn();
-      if (hint_flash_.rfind("New session in", 0) == 0) hint_flash_until_ = now();
+      if (hint_flash_.rfind("Volume in", 0) == 0) hint_flash_until_ = now();
       break;
     case Button::Up:
     case Button::Down:

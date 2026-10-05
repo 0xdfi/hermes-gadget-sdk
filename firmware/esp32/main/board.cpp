@@ -22,8 +22,6 @@ namespace {
 #define HG_BOARD_NAME "m5stack-cores3"
 #elif CONFIG_HG_BOARD_WS_ESP32S3_LCD_154
 #define HG_BOARD_NAME "waveshare-esp32s3-lcd-154"
-#elif CONFIG_HG_BOARD_AIPI_LITE
-#define HG_BOARD_NAME "aipi-lite"
 #else
 #define HG_BOARD_NAME "custom"
 #endif

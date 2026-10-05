@@ -32,3 +32,4 @@ firmware/esp32/sdkconfig.*-*
 .idea/
 .DS_Store
 Thumbs.db
+firmware/esp32/build-aipi-lite/
