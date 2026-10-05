@@ -82,6 +82,120 @@ The USB-C port is the S3's own USB Serial/JTAG, so flashing and the serial conso
 4. **Speaker:** replies are clear and loud enough (`set volume 80`); no hiss between replies.
 5. **Buttons:** BOOT holds to talk, PLUS cancels, and holding PLUS for 2 s starts a new conversation.
 
+## Waveshare ESP32-S3-Touch-LCD-1.85C V2
+
+**Experimental, hardware unvalidated. Rev2.0 only**, identified by PCB Rev2.0,
+case V2 sticker, or factory firmware Rev2.0. V1 uses different audio hardware
+and must not use this image. Select `esp32s3-touch-lcd-185c-v2`; the embedded
+OTA identity is `waveshare-esp32-s3-touch-lcd-1.85c-v2`. ESP32-S3R8, 16 MB flash,
+8 MB octal PSRAM, round 360×360 RGB565 LCD. The standard SKU needs a speaker
+connected to SPK; the BOX includes one. Start with low volume.
+
+| Part | Connection |
+|---|---|
+| ST77916 QSPI LCD | CS 21, clock 40, D0–D3 46/45/42/41; backlight GPIO 5 (active-high LEDC), TE 18 unused |
+| CST816 touch | I2C 0x15; interrupt GPIO 4 unused (20 ms polling); no mirroring or XY swap |
+| TCA9554 | I2C 0x20; P0 = touch reset, P1 = LCD reset, active low; other bits preserved |
+| I2C | SDA 11, SCL 10, 400 kHz |
+| ES8311 decoder | I2C 0x18; I2S DOUT 47 to codec DIN; NS4150B PA_CTRL GPIO 15 active high |
+| ES7210 encoder | I2C 0x40; I2S DIN 39 from ADC; MIC2 and MIC4 are the two analog microphones |
+| Shared audio clock | MCLK 2, BCLK 48, LRCK 38; 16 kHz, stereo 32-bit I2S frames |
+| BOOT fallback TALK | GPIO 0, active low |
+| Native USB | GPIO 19/20 reserved for USB Serial/JTAG; console at 115200 baud |
+
+The expander adapter pulses only P0/P1 low for 10 ms, then high for 50 ms,
+with masked output/configuration writes, before initializing LCD and touch.
+LCD ID command 0x04 is read at 3 MHz, as in the factory demo. IDs
+`00 7f 7f 7f` and `00 02 7f 7f` select the two vendor initialization tables;
+an unknown or failed ID read leaves the display unavailable, rather than
+trying guessed settings. Normal pixel transfers use 80 MHz QSPI with a DMA
+bounce buffer and wait for transfer completion before reusing it.
+
+Audio reuses `esp_codec_dev` and the event queue. The factory's 64-bit
+frame contains four ADC PCM16 slots (`RMNM`: playback reference, microphone,
+unused, microphone). Both microphone slots are averaged into mono PCM16 for
+the portable core; replies are expanded into two 32-bit DAC slots. This
+format is selected only for V2, so the existing codec profiles remain mono16.
+The speaker lifecycle owns PA_CTRL; codec initialization cannot enable it.
+PA_CTRL stays low when idle and is lowered synchronously by `abort()` with
+GPIO/generation locking to prevent an old reply from re-enabling it. Codec
+writes already in flight may finish with the amplifier disabled. Physical
+shutdown latency, startup transients and subsequent playback still need testing.
+A missing LCD DMA callback stops display updates after a 250 ms wait without
+reusing the possibly active DMA buffer; other app functions continue, and a
+manual reboot is required to recover the display. Five failed CST816 polls
+release a held touch (roughly 100–200 ms plus scheduler delay); this uses normal
+release semantics, so an active held recording can be submitted. Validate this
+fault/recovery behavior during the physical test. Diagnostics name Rev2.0 as
+the firmware target, not as a detected PCB revision.
+
+**AEC limitation:** the analog playback-reference circuit is present, but
+this port does not run ESP-SR or a software AEC filter, expose stereo capture,
+or claim echo cancellation or voice barge-in quality. The reference and
+unused slots are intentionally excluded from the transmitted microphone mix.
+Touch/BOOT interruption uses the SDK's existing push-to-talk flow. Record AEC
+and simultaneous playback/capture observations separately; a good transcript
+alone does not verify AEC. RTC, IMU, TF card, battery ADC/charging and software
+power-off are not implemented; the physical battery switch retains its role.
+Screen dimming and timeout control the GPIO 5 backlight.
+
+Build without touching USB:
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-lcd-185c-v2
+```
+
+ESP-IDF builds use
+`SDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/waveshare-esp32-s3-touch-lcd-1.85c-v2/sdkconfig.defaults"`
+with a separate build directory and sdkconfig. The environment participates in
+CI and automatic release packaging/installer metadata discovery. Until a
+release includes it, use a source build; no release has been published by this
+port. For desktop UI/gesture tests use `--board sim-360x360-round`.
+
+### V2 first-flash checklist (requires a separate hardware test)
+
+1. Confirm Rev2.0 and back up factory firmware/settings before installing.
+   Check USB download/recovery, boot log, 16 MB flash and 8 MB octal PSRAM;
+   no GPIO 19/20 reuse. Save sanitized `diag` and `diag log` reports.
+2. Check `TCA9554 LCD/touch resets ready`, `st77916 360x360 ready`, both codecs
+   ready and touch ready. I2C should include 0x15, 0x18, 0x20 and 0x40;
+   QMI8658/PCF85063 may also answer but are not SDK capabilities.
+3. Display: centered/upright mascot, no mirroring, all circle edges visible,
+   amber accents rather than blue, smooth full-width flushes, backlight 0–100
+   and screen timeout. Record the panel ID and which table was selected.
+4. Touch: verify center and four compass points, hold TALK, lift to send,
+   tap YES, swipe **down** CANCEL, title hold opens settings, first touch wakes
+   without sending a turn. BOOT also holds TALK; RESET is not CANCEL.
+5. Microphones: test each physical mic separately, waveform and transcript,
+   with and without speaker playback; verify neither reference nor unused
+   ADC channel is mistaken for a microphone. Record clipping/noise and RMNM
+   slot mapping. AEC is **not implemented**: record residual echo explicitly.
+6. Speaker/PA: begin at low volume, test a spoken reply, mute/idle silence,
+   cancel during playback, subsequent playback, and GPIO 15 enable/disable;
+   check hiss, popping, distortion and underruns. Do not infer PA operation
+   from a successful codec I2C probe.
+7. USB console: `status`, `diag`, settings persist across a manual reboot;
+   verify BOOT-based download recovery before relying on OTA.
+8. Wi-Fi: phone setup, wrong/correct password, cancellation, reconnect and
+   gateway loss/recovery. Never include secrets in test reports.
+9. Pair with Hermes, restart to check identity persistence, then complete a
+   held voice turn with transcript and audible reply; tap YES and cancel a
+   question/recording/reply. Test exact-board OTA and rollback separately.
+10. Complete the [physical validation report](hardware-validation.md),
+    including power-source behavior and a two-hour session. All these hardware
+    items remain untested by automated builds/simulator tests.
+
+Authoritative sources: [Waveshare V2 documentation](https://docs.waveshare.com/ESP32-S3-Touch-LCD-1.85C),
+[V2 schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.85C/ESP32-S3-Touch-LCD-1.85C_V2.pdf),
+and [factory demo at 8ead4a96](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.85C/tree/8ead4a96bf3a278fc4ebd8ef4768657e17fa2880).
+Relevant paths: `main/LCD_Driver/ST77916.{h,c}`, `main/EXIO/TCA9554PWR.{h,c}`,
+`main/Touch_Driver/CST816.{h,c}` and
+`components/auido_borad/boards/ESP32_S3_AUDIO_Board/bsp_board.c` under
+`ESP-IDF/ESP32-S3-Touch-LCD-1.85C-Test`. The demo's EXIO numbering is one-based,
+not ESP GPIO numbering. Driver/table licenses are in
+[THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## ESP32-S3-BOX-3
 
 Use `esp32-s3-box-3` for Espressif's BOX-3 with 16 MB flash and 16 MB octal PSRAM. The original BOX and BOX-Lite need different profiles. This port is experimental, with no physical report recorded.

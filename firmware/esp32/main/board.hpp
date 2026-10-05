@@ -9,7 +9,7 @@
 
 namespace hgp {
 
-enum class LcdController { St7789, Box3, CoreS3 };
+enum class LcdController { St7789, Box3, CoreS3, St77916 };
 
 struct LcdConfig {
   bool enabled = false;
@@ -20,6 +20,8 @@ struct LcdConfig {
   int spi_mhz = 40;
   LcdController controller = LcdController::St7789;
   bool reset_active_high = false;
+  int d1 = -1, d2 = -1, d3 = -1;  // QSPI data0 uses mosi
+  bool round = false;
 };
 
 struct I2sMicConfig {
@@ -58,10 +60,11 @@ struct CodecAudioConfig {
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
   SpeakerCodec speaker = SpeakerCodec::Es8311;
+  bool stereo32 = false;  // Waveshare V2: 64 BCLK/frame, RMNM ADC packing
 };
 
 // Capacitive touch on the I2C bus: hold to talk, tap, swipe down to cancel.
-enum class TouchController { Cst9217, Box3, Ft5x06 };
+enum class TouchController { Cst9217, Box3, Ft5x06, Cst816 };
 
 struct TouchConfig {
   bool enabled = false;
@@ -104,6 +107,7 @@ struct BoardConfig {
   bool axp2101 = false;
   bool axp_audio_supply = false;
   bool cores3 = false;
+  bool tca9554_resets = false;  // 1.85C: P0 touch reset, P1 LCD reset
   LatchPowerConfig latch_power;
   int status_led = -1;
   const char* talk_label = "TALK";

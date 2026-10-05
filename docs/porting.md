@@ -40,7 +40,7 @@ Before flashing, use **Custom pins** in menuconfig to try a wiring without writi
 
 ## A different display
 
-Two display adapters ship: `SpiDisplay` (ST7789 and ILI9342 variants over SPI) and `AmoledDisplay` (CO5300 over QSPI, for round AMOLED modules). For a round panel set `round` in the board config: the UI then keeps to the square inside the circle. BOX-3 uses the managed TT21100/GT911 touch drivers. Its LCD and touch share one reset line, so initialize the display before touch. CoreS3 uses FT5x06 for touch and detects the LCD revision through its firmware ID.
+Two display adapters ship (the SPI adapter also supports ST77916 QSPI LCD with a GPIO backlight): `SpiDisplay` (ST7789 and ILI9342 variants over SPI) and `AmoledDisplay` (CO5300 over QSPI, for round AMOLED modules). For a round panel set `round` in the board config: the UI then keeps to the square inside the circle. BOX-3 uses the managed TT21100/GT911 touch drivers. Its LCD and touch share one reset line, so initialize the display before touch. CoreS3 uses FT5x06 for touch and detects the LCD revision through its firmware ID.
 
 Implement `hg::Display` (`firmware/core/include/hg/hal.hpp`):
 

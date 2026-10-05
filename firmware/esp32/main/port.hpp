@@ -132,6 +132,7 @@ class SpiDisplay final : public hg::Display {
   uint16_t* bounce_ = nullptr;  // DMA-capable staging rows
   int bounce_rows_ = 0;
   SemaphoreHandle_t done_ = nullptr;
+  bool transfer_failed_ = false;  // Keep a potentially DMA-owned buffer untouched after failure.
 };
 
 // I2S MEMS microphone: a reader task posts 20 ms PCM16 chunks while capturing.
@@ -190,6 +191,8 @@ class AmoledDisplay final : public hg::Display {
   SemaphoreHandle_t done_ = nullptr;
 };
 
+bool ws185_reset_peripherals(i2c_master_bus_handle_t bus);
+
 namespace i2c {
 // The board's shared I2C master bus (created on first use).
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
@@ -211,19 +214,21 @@ class CodecAudio {
 
 class CodecMic final : public hg::AudioIn {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool stereo32 = false);
   bool start(uint32_t sample_rate) override;
   void stop() override { capturing_ = false; }
 
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool stereo32_ = false;
+  int16_t* raw_ = nullptr;
   std::atomic<bool> capturing_{false};
 };
 
 class CodecSpeaker final : public hg::AudioOut {
  public:
-  bool begin(esp_codec_dev_handle_t dev);
+  bool begin(esp_codec_dev_handle_t dev, bool stereo32 = false, int pa = -1);
   bool begin(uint32_t sample_rate) override;
   void write(const int16_t* samples, size_t count) override;
   void end() override;
@@ -234,6 +239,11 @@ class CodecSpeaker final : public hg::AudioOut {
  private:
   static void task(void* arg);
   esp_codec_dev_handle_t dev_ = nullptr;
+  bool stereo32_ = false;
+  int32_t* stereo_ = nullptr;
+  int pa_ = -1;
+  std::mutex pa_lock_;  // GPIO/generation only; never held over a codec I2C/I2S operation.
+  uint32_t pa_generation_ = 0;
   StreamBufferHandle_t buffer_ = nullptr;
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};

@@ -171,7 +171,9 @@ extern "C" void app_main(void) {
   if (latch_power) hal.power = &g_latch_power;
   if (g_updater.capacity()) hal.updater = &g_updater;
   i2c_master_bus_handle_t i2c_bus = hgp::i2c::bus(board.i2c);
-  const bool peripherals_ready = !board.cores3 || g_cores3.begin(i2c_bus);
+  const bool peripherals_ready = (!board.cores3 || g_cores3.begin(i2c_bus)) &&
+      (!board.tca9554_resets || hgp::ws185_reset_peripherals(i2c_bus));
+  if (!peripherals_ready) ESP_LOGE(TAG, "peripheral reset initialization failed");
   if (board.cores3 && peripherals_ready)
     g_display.board_backlight = [](uint8_t percent) { g_cores3.set_backlight(percent); };
   if (peripherals_ready && board.lcd.enabled && g_display.begin(board.lcd, i2c_bus)) hal.display = &g_display;
@@ -182,8 +184,8 @@ extern "C" void app_main(void) {
   const bool audio_power = peripherals_ready && (!board.axp_audio_supply || g_power.enable_audio_supply());
   if (!audio_power) ESP_LOGE(TAG, "audio supply unavailable");
   if (board.codec.enabled && audio_power && g_codec.begin(board.codec, i2c_bus)) {
-    if (g_codec_mic.begin(g_codec.in())) hal.mic = &g_codec_mic;
-    if (g_codec_speaker.begin(g_codec.out())) hal.speaker = &g_codec_speaker;
+    if (g_codec_mic.begin(g_codec.in(), board.codec.stereo32)) hal.mic = &g_codec_mic;
+    if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.stereo32 ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
   }
   g_buttons.begin(board.buttons);
   const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled) &&
@@ -231,6 +233,11 @@ extern "C" void app_main(void) {
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
   app.on_diag = [](hg::json::Value& report) {
     hgp::diag::report(report);
+    if (hgp::board_config().tca9554_resets) {
+      report.set("firmware_target_revision", "Rev2.0").set("validation", "experimental; hardware unvalidated")
+          .set("touch_controller", "cst816").set("audio_format", "RMNM stereo32 to mono16")
+          .set("software_aec", false);
+    }
     report.set("ota", g_updater.describe());
   };
   app.recent_log = &hgp::diag::recent_log;
