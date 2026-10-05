@@ -2,7 +2,7 @@ name: gadget
 label: Hermes Gadget
 kind: platform
 version: 0.1.1
-manifest_version: 2
+manifest_version: 1
 api_version: 1
 description: >
   Connect small hardware devices (ESP32 boards with a screen, microphone and
