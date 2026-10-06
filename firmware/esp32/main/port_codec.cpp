@@ -228,6 +228,8 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
 }
 
 void CodecSpeaker::write(const int16_t* samples, size_t count) {
+  std::unique_lock<std::mutex> lock(pa_lock_, std::defer_lock);
+  if (pa_ >= 0) lock.lock();
   if (!open_) return;
   size_t bytes = count * sizeof(int16_t);
   size_t sent = xStreamBufferSend(buffer_, samples, bytes, 0);
@@ -240,11 +242,15 @@ void CodecSpeaker::end() {
 }
 
 void CodecSpeaker::abort() {
+  std::unique_lock<std::mutex> lock(pa_lock_, std::defer_lock);
+  if (pa_ >= 0) lock.lock();
   open_ = false;
   draining_ = false;
   flush_ = true;
   if (pa_ >= 0) {
-    std::lock_guard<std::mutex> lock(pa_lock_);
+    // V2 receive/send are nonblocking under this lock, so reset cannot
+    // race a blocked reader or discard samples from the subsequent begin().
+    xStreamBufferReset(buffer_);
     ++pa_generation_;
     gpio_set_level(static_cast<gpio_num_t>(pa_), 0);
   }
@@ -265,7 +271,8 @@ void CodecSpeaker::task(void* arg) {
   bool playing = false;
   for (;;) {
     if (self->flush_.exchange(false)) {
-      xStreamBufferReset(self->buffer_);
+      // V2 already reset synchronously in abort(), before new samples arrived.
+      if (self->pa_ < 0) xStreamBufferReset(self->buffer_);
       if (self->pa_ >= 0) {
         {
           std::lock_guard<std::mutex> lock(self->pa_lock_);
@@ -276,11 +283,14 @@ void CodecSpeaker::task(void* arg) {
       }
     }
     uint32_t generation = 0;
+    size_t got = 0;
     if (self->pa_ >= 0) {
       std::lock_guard<std::mutex> lock(self->pa_lock_);
       generation = self->pa_generation_;
+      got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), 0);
+    } else {
+      got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     }
-    size_t got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
       if (playing && !self->open_) {
         // Everything queued has been written out: mute so the amplifier stays quiet.
@@ -292,6 +302,7 @@ void CodecSpeaker::task(void* arg) {
         }
         playing = false;
       }
+      if (self->pa_ >= 0) vTaskDelay(pdMS_TO_TICKS(20));
       continue;
     }
     if (!playing) {

@@ -242,7 +242,7 @@ class CodecSpeaker final : public hg::AudioOut {
   bool stereo32_ = false;
   int32_t* stereo_ = nullptr;
   int pa_ = -1;
-  std::mutex pa_lock_;  // GPIO/generation only; never held over a codec I2C/I2S operation.
+  std::mutex pa_lock_;  // V2 GPIO/generation/nonblocking queue operations; never codec I/O.
   uint32_t pa_generation_ = 0;
   StreamBufferHandle_t buffer_ = nullptr;
   std::atomic<bool> open_{false};
