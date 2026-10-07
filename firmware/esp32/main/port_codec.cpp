@@ -312,13 +312,15 @@ void CodecSpeaker::task(void* arg) {
         // (60 ms). Three 1KB writes = 3072 B = 64 ms > ring depth, with margin.
         xSemaphoreTake(s_dev_lock, portMAX_DELAY);
         int16_t silence[kSpeakerChunk] = {};
-        bool drained = true;
-        for (int i = 0; i < 3; i++)
-          if (esp_codec_dev_write(self->dev_, silence, sizeof(silence)) <= 0) drained = false;
+        int errs = 0, first_rc = 0;
+        for (int i = 0; i < 3; i++) {
+          int rc = esp_codec_dev_write(self->dev_, silence, sizeof(silence));
+          if (rc != ESP_CODEC_DEV_OK) { errs++; if (!first_rc) first_rc = rc; }
+        }
         esp_codec_dev_set_out_mute(self->dev_, true);
         xSemaphoreGive(s_dev_lock);
         self->draining_ = false;  // busy() stays true until the tail is played and muted
-        if (!drained) ESP_LOGW(TAG, "spk tail drain: silence write failed, tail may clip");
+        if (errs) ESP_LOGW(TAG, "spk tail drain: %d/3 writes failed (rc of first=%d), tail may clip", errs, first_rc);
         if (pa) pa->disable();
         int64_t elapsed = esp_timer_get_time() / 1000 - stream_t0;
         ESP_LOGW(TAG, "spk stream end: %lld B played, %u B dropped, in %lld ms (%.2f B/ms, kRate=%u => %.2f)",
