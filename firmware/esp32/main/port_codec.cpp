@@ -287,6 +287,8 @@ void CodecSpeaker::task(void* arg) {
   int32_t* stereo = self->stereo_;
   auto& pa = self->pa_;
   bool playing = false;
+  int64_t stream_t0 = 0;
+  uint64_t stream_bytes = 0;
   for (;;) {
     if (self->flush_.exchange(false)) {
       if (pa) {
@@ -303,16 +305,20 @@ void CodecSpeaker::task(void* arg) {
     if (got == 0) {
       if (playing && !self->open_) {
         // The ring is empty but the last real audio may still sit in the I2S DMA
-        // ring (esp_codec_dev_write returns once queued, not once played). Push
-        // silence >= DMA depth so the tail actually plays before muting, else the
-        // final phoneme clips (Opus F5). Two 1 KB writes ~= 85 ms at 24 kHz.
-        self->draining_ = false;
+        // ring (esp_codec_dev_write/i2s_channel_write return once queued, not once
+        // played). Push silence exceeding DMA ring depth before muting, else the
+        // final phoneme clips (Opus F5; main-profile cross-check F2).
+        // IDF 5.3.2 defaults here: 6 DMA descriptors x 240 frames = 1440 samples
+        // (60 ms). Three 1KB writes = 3072 B = 64 ms > ring depth, with margin.
         xSemaphoreTake(s_dev_lock, portMAX_DELAY);
         int16_t silence[kSpeakerChunk] = {};
-        esp_codec_dev_write(self->dev_, silence, sizeof(silence));
-        esp_codec_dev_write(self->dev_, silence, sizeof(silence));
+        bool drained = true;
+        for (int i = 0; i < 3; i++)
+          if (esp_codec_dev_write(self->dev_, silence, sizeof(silence)) <= 0) drained = false;
         esp_codec_dev_set_out_mute(self->dev_, true);
         xSemaphoreGive(s_dev_lock);
+        self->draining_ = false;  // busy() stays true until the tail is played and muted
+        if (!drained) ESP_LOGW(TAG, "spk tail drain: silence write failed, tail may clip");
         if (pa) pa->disable();
         int64_t elapsed = esp_timer_get_time() / 1000 - stream_t0;
         ESP_LOGW(TAG, "spk stream end: %lld B played, %u B dropped, in %lld ms (%.2f B/ms, kRate=%u => %.2f)",
@@ -334,14 +340,19 @@ void CodecSpeaker::task(void* arg) {
     }
     // Drop a chunk taken before an abort() rather than replay it.
     if (pa && !pa->enable(generation)) continue;
+    if (stream_t0 == 0) stream_t0 = esp_timer_get_time() / 1000;  // pacing/log clock starts on first actual audio frame (Opus F4)
     if (self->stereo32_) {
       const size_t frames = got / sizeof(int16_t);
       hg::ws185_stereo32(chunk, stereo, frames);
       esp_codec_dev_write(self->dev_, stereo, static_cast<int>(frames * 2 * sizeof(int32_t)));
+      stream_bytes += frames * 2 * sizeof(int32_t);
     } else {
-      esp_codec_dev_write(self->dev_, chunk, static_cast<int>(got & ~static_cast<size_t>(1)));
+      size_t wr = got & ~static_cast<size_t>(1);
+      esp_codec_dev_write(self->dev_, chunk, static_cast<int>(wr));
+      stream_bytes += wr;
     }
   }
+}
 }
 
 }  // namespace hgp
