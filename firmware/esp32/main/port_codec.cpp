@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/task.h"
 #include "speaker_queue.hpp"
 #include "ws185.hpp"
@@ -354,7 +355,6 @@ void CodecSpeaker::task(void* arg) {
       stream_bytes += wr;
     }
   }
-}
 }
 
 }  // namespace hgp
