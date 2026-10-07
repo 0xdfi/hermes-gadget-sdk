@@ -340,6 +340,7 @@ class CodecSpeaker final : public hg::AudioOut {
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};
   std::atomic<bool> flush_{false};
+  std::atomic<uint32_t> drop_bytes_{0};  // cumulative whole-frame overflow drops, reported at stream end
 };
 
 // Polls a touchscreen, a key mirrored on an I/O expander and a rotary encoder

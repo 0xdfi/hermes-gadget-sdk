@@ -302,10 +302,27 @@ void CodecSpeaker::task(void* arg) {
                     : xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
       if (playing && !self->open_) {
-        // Everything queued has been written out: mute so the amplifier stays quiet.
+        // The ring is empty but the last real audio may still sit in the I2S DMA
+        // ring (esp_codec_dev_write returns once queued, not once played). Push
+        // silence >= DMA depth so the tail actually plays before muting, else the
+        // final phoneme clips (Opus F5). Two 1 KB writes ~= 85 ms at 24 kHz.
         self->draining_ = false;
+        xSemaphoreTake(s_dev_lock, portMAX_DELAY);
+        int16_t silence[kSpeakerChunk] = {};
+        esp_codec_dev_write(self->dev_, silence, sizeof(silence));
+        esp_codec_dev_write(self->dev_, silence, sizeof(silence));
         esp_codec_dev_set_out_mute(self->dev_, true);
+        xSemaphoreGive(s_dev_lock);
         if (pa) pa->disable();
+        int64_t elapsed = esp_timer_get_time() / 1000 - stream_t0;
+        ESP_LOGW(TAG, "spk stream end: %lld B played, %u B dropped, in %lld ms (%.2f B/ms, kRate=%u => %.2f)",
+                 static_cast<long long>(stream_bytes),
+                 static_cast<unsigned>(self->drop_bytes_.exchange(0)),
+                 static_cast<long long>(elapsed),
+                 elapsed > 0 ? static_cast<double>(stream_bytes) / elapsed : 0.0,
+                 static_cast<unsigned>(CodecAudio::kRate),
+                 elapsed > 0 ? static_cast<double>(stream_bytes) / elapsed /
+                     (CodecAudio::kRate * sizeof(int16_t) / 1000.0) : 0.0);
         playing = false;
       }
       if (pa) vTaskDelay(pdMS_TO_TICKS(20));
