@@ -17,8 +17,14 @@ namespace hgp {
 namespace {
 
 const char* TAG = "hg.codec";
+SemaphoreHandle_t s_dev_lock = nullptr;
+// esp_codec_dev handle state is not internally serialized; the mic task, the
+// speaker task, and runtime volume changes all touch one handle, so every
+// esp_codec_dev call takes this lock. Heap/pointer corruption from racing
+// calls showed up as LoadProhibited in sw_vol, an xQueueSemaphoreTake assert,
+// and Wi-Fi task crashes (reason 205).
 constexpr size_t kMicChunk = 320;             // 20 ms at 16 kHz
-constexpr size_t kSpeakerBuffer = 48 * 1024;  // ~1.5 s at 16 kHz; the server paces 0.5 s ahead
+constexpr size_t kSpeakerBuffer = 192 * 1024;  // absorbs WiFi-burst backlog without dropping; PSRAM, 8 MB free
 constexpr size_t kSpeakerChunk = 512;         // samples per codec write
 
 }  // namespace
@@ -233,10 +239,23 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
 void CodecSpeaker::write(const int16_t* samples, size_t count) {
   if (!open_) return;
   size_t bytes = count * sizeof(int16_t);
-  // The app task is the only writer, so the room can only grow before the send.
-  size_t fit = hg::whole_sample_bytes(bytes, xStreamBufferSpacesAvailable(buffer_));
-  size_t sent = xStreamBufferSend(buffer_, samples, fit, 0);
-  if (sent < bytes) ESP_LOGW(TAG, "playback buffer full, dropped %u bytes", static_cast<unsigned>(bytes - sent));
+  // Whole-frame drop: a nonblocking xStreamBufferSend can partial-write when
+  // the ring is nearly full, and a partial frame shifts every later sample pair
+  // by one byte => full-scale static. Drop the whole frame instead; never
+  // misaligns. Cumulative drop accounting for stream-end logging.
+  if (xStreamBufferSpacesAvailable(buffer_) < bytes) {
+    drop_bytes_ += bytes;
+    static int64_t last_drop_log = 0;
+    int64_t now = esp_timer_get_time() / 1000;
+    if (now - last_drop_log > 2000) {
+      last_drop_log = now;
+      ESP_LOGW(TAG, "playback buffer full, dropped %u B cumulative (ring avail %u)",
+               static_cast<unsigned>(drop_bytes_.load()),
+               static_cast<unsigned>(xStreamBufferSpacesAvailable(buffer_)));
+    }
+    return;
+  }
+  xStreamBufferSend(buffer_, samples, bytes, 0);
 }
 
 void CodecSpeaker::end() {
