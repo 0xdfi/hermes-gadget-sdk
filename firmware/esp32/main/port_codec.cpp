@@ -259,8 +259,11 @@ void CodecSpeaker::write(const int16_t* samples, size_t count) {
 }
 
 void CodecSpeaker::end() {
-  open_ = false;
+  // Publication order matters: mark draining first. A consumer that observes
+  // open_ == false must already see draining_ == true, or it could mute the amp
+  // with queued audio still unplayed.
   draining_ = true;
+  open_ = false;
 }
 
 void CodecSpeaker::abort() {
