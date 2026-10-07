@@ -294,7 +294,9 @@ i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
 // run at one fixed rate (they share the bit clock).
 class CodecAudio {
  public:
-  static constexpr uint32_t kRate = 16000;
+  // 24000: the known-good xiaozhi aipi-lite pipeline is validated at 24 kHz on
+  // this silicon (coeff {3072000,24000}); at 16000 playback ran ~2.3x slow.
+  static constexpr uint32_t kRate = 24000;
   bool begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus);
   esp_codec_dev_handle_t out() const { return out_; }
   esp_codec_dev_handle_t in() const { return in_; }
@@ -338,6 +340,7 @@ class CodecSpeaker final : public hg::AudioOut {
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};
   std::atomic<bool> flush_{false};
+  std::atomic<size_t> skip_{0};  // bytes the drain task must discard from the ring head
 };
 
 // Polls a touchscreen, a key mirrored on an I/O expander and a rotary encoder
