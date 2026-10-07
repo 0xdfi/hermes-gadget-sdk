@@ -340,7 +340,6 @@ class CodecSpeaker final : public hg::AudioOut {
   std::atomic<bool> open_{false};
   std::atomic<bool> draining_{false};
   std::atomic<bool> flush_{false};
-  std::atomic<size_t> skip_{0};  // bytes the drain task must discard from the ring head
 };
 
 // Polls a touchscreen, a key mirrored on an I/O expander and a rotary encoder
