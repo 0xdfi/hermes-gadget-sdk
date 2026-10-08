@@ -309,14 +309,27 @@ void CodecSpeaker::task(void* arg) {
         // ring (esp_codec_dev_write/i2s_channel_write return once queued, not once
         // played). Push silence exceeding DMA ring depth before muting, else the
         // final phoneme clips (Opus F5; main-profile cross-check F2).
-        // IDF 5.3.2 defaults here: 6 DMA descriptors x 240 frames = 1440 samples
-        // (60 ms). Three 1KB writes = 3072 B = 64 ms > ring depth, with margin.
+        // IDF 5.3.2 defaults here: 6 DMA descriptors x 240 frames, in the codec's
+        // actual frame width: mono 16-bit = 2880 B (60 ms); stereo 32-bit =
+        // 11520 B (60 ms). Silence is written in that same width, sized to exceed
+        // the ring with margin (3x for mono16 via 1KB chunks, 4x1KB-equivalents
+        // via full-width stereo conversion for stereo32).
         xSemaphoreTake(s_dev_lock, portMAX_DELAY);
-        int16_t silence[kSpeakerChunk] = {};
         int errs = 0, first_rc = 0;
-        for (int i = 0; i < 3; i++) {
-          int rc = esp_codec_dev_write(self->dev_, silence, sizeof(silence));
-          if (rc != ESP_CODEC_DEV_OK) { errs++; if (!first_rc) first_rc = rc; }
+        if (self->stereo32_) {
+          // Convert silence through the same width path as real audio: 1KB of
+          // int16 mono becomes 4KB of int32 stereo; 3 writes = 12288 B > 11520 B.
+          for (int i = 0; i < 3; i++) {
+            memset(self->stereo_, 0, kSpeakerChunk * 2 * sizeof(int32_t));
+            int rc = esp_codec_dev_write(self->dev_, self->stereo_, kSpeakerChunk * 2 * sizeof(int32_t));
+            if (rc != ESP_CODEC_DEV_OK) { errs++; if (!first_rc) first_rc = rc; }
+          }
+        } else {
+          int16_t silence[kSpeakerChunk] = {};
+          for (int i = 0; i < 3; i++) {
+            int rc = esp_codec_dev_write(self->dev_, silence, sizeof(silence));
+            if (rc != ESP_CODEC_DEV_OK) { errs++; if (!first_rc) first_rc = rc; }
+          }
         }
         esp_codec_dev_set_out_mute(self->dev_, true);
         xSemaphoreGive(s_dev_lock);
