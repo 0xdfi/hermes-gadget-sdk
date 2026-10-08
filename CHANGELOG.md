@@ -9,6 +9,7 @@
 
 ### Firmware
 
+- Boards that play through an ES8311 or AW88298 codec run their audio at 24 kHz instead of 16 kHz and buffer 192 KB of speaker audio in PSRAM instead of 48 KB, so they absorb a longer Wi-Fi burst before dropping audio. They play silence into the I2S DMA buffer before muting, so the end of a reply is no longer cut off. Contributed by 0xdfi.
 - A console command that times out no longer leaves the app task writing its reply into freed memory. The request slot is shared by both tasks and freed by whichever finishes last, so a late reply is dropped instead of corrupting the stack. The slot is host-tested.
 - The device refuses an over-the-air image built for another board, by reading the `HGBOARD=` tag as the image streams in, so a wrong image can no longer reach Wi-Fi and Hermes and pass the rollback check. The plugin's own check stays as the first line.
 - A setting that cannot be saved is reported: `set` answers `@error could not save <key>`, a device key that cannot be saved is logged as an error, and a key longer than NVS allows is refused instead of silently cut.
