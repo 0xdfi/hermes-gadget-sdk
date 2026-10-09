@@ -77,6 +77,8 @@ For an active-low GPIO backlight driven by `SpiDisplay`, set `b.lcd.backlight_in
 
 Set `Hal::power` only after the board's power driver starts successfully. `Power::read()` returns current readings or `nullopt` on a failed read. Each measurement is optional; omit a percentage when the hardware has no fuel gauge. `power_off()` requests a local shutdown and reports whether the request succeeded. The settings menu asks for a second selection before calling it.
 
+The AXP2101's fuel gauge can read well off on a given cell. A board can set `BoardConfig::battery_curve` and `battery_charge_curve` to curves measured on its own cell (`firmware/drivers/battery_curve.hpp`, with the AMOLED-1.75C's as the example): the driver then reports the percentage from the voltage on those curves instead of the gauge.
+
 The AXP2101 implementation is in `firmware/drivers/axp2101.cpp`, with the ESP32 I2C connection in `port_power.cpp`. It leaves charger settings and supply rails unchanged. The core reports unavailable sensor values as JSON `null` to replace earlier readings at the gateway.
 
 CoreS3 has a separate `CoreS3Control` in `firmware/drivers/cores3.cpp`. It enables the required audio supplies, boost and AW9523 reset outputs before display, touch and audio initialization. Its masked writes preserve unrelated settings. `SpiDisplay::board_backlight` routes brightness through DLDO1 on this board. Native tests cover supply values, reset timing, preservation of other registers, brightness and failed I2C access. `CodecAudioConfig::speaker` selects the AW88298 driver for CoreS3; other profiles keep ES8311.
