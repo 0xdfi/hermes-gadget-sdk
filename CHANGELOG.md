@@ -9,6 +9,7 @@
 
 ### Firmware
 
+- Over-the-air updates no longer fail with "the image is for , not this board". Every image held a nameless copy of the `HGBOARD=` board tag ahead of the real one, and the device's check stopped at it. Images no longer carry the copy, so devices on 0.2.0 accept them, and the device, the plugin and the release packager now skip a nameless tag in older images.
 - A console command that times out no longer leaves the app task writing its reply into freed memory. The request slot is shared by both tasks and freed by whichever finishes last, so a late reply is dropped instead of corrupting the stack. The slot is host-tested.
 - The device refuses an over-the-air image built for another board, by reading the `HGBOARD=` tag as the image streams in, so a wrong image can no longer reach Wi-Fi and Hermes and pass the rollback check. The plugin's own check stays as the first line.
 - A setting that cannot be saved is reported: `set` answers `@error could not save <key>`, a device key that cannot be saved is logged as an error, and a key longer than NVS allows is refused instead of silently cut.
