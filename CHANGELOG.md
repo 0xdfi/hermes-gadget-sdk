@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- A dark screen stays dark while Wi-Fi or the connection to Hermes drops and reconnects; it used to light up and, without a screen timeout, stay on until someone turned it off. Contributed by Antonio Lourenco (@tozes).
 - Boards with a separate ES7210 microphone ADC (the AMOLED-1.75 and 1.75C, the 1.85C V2 and the LCD-1.54) power it down between recordings instead of running and reading it continuously, which saves battery. Recording starts by draining the audio the I2S channel kept while the ADC was off and dropping 20 ms while it settles. Boards whose microphone shares the speaker's codec keep reading continuously. Contributed by Antonio Lourenco (@tozes).
 - Boards that report a battery percentage show it at the top of the screen: a battery icon and the percentage in the title bar, or centred at the top edge of round displays, green while charging and red at 10 percent or less without USB. Selecting **Battery and power** in device settings cycles it through icon only, percentage only, both and off; the console takes `set battery_display icon|percentage|both|off`. It is off by default and the choice survives restarts. Contributed by Antonio Lourenco (@tozes).
 - On battery, Wi-Fi retries back off from 3 s to 30 s, like the Hermes reconnect, instead of trying every 3 s, so a long stretch without coverage costs little. Plugged in, they stay at every 3 s. Contributed by Antonio Lourenco (@tozes).
