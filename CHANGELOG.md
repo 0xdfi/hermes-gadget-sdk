@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- Boards that report a battery percentage show it at the top of the screen: a battery icon and the percentage in the title bar, or centred at the top edge of round displays, green while charging and red at 10 percent or less without USB. Selecting **Battery and power** in device settings cycles it through icon only, percentage only, both and off; the console takes `set battery_display icon|percentage|both|off`. It is off by default and the choice survives restarts. Contributed by Antonio Lourenco (@tozes).
 - AMOLED boards (the 1.75, 1.75C and 1.8) draw the background true black instead of near black, so those pixels stay off and draw no power. Backlit LCDs keep the near-black background. Display drivers opt in with `DisplayInfo::emissive`. Contributed by Antonio Lourenco (@tozes).
 - Battery life on the AMOLED-1.75C: the speaker amplifier is powered only while sound plays, and the CPU scales down to 80 MHz when idle instead of running at 240 MHz. AMOLED panels also switch their output off during screen sleep, not only their brightness. Contributed by Antonio Lourenco (@tozes).
 - The AMOLED-1.75C's PWR key puts the screen to sleep and wakes it with a short press. Only the AXP2101 sees this key, so the firmware enables the PMIC's short-press interrupt and polls it every 100 ms; holding PWR keeps the PMIC's own power behavior. Contributed by Antonio Lourenco (@tozes).
