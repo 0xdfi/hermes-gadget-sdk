@@ -9,6 +9,7 @@
 
 ### Firmware
 
+- A weak or lost Wi-Fi link no longer freezes the device until a hard reset. Closing the WebSocket used esp_websocket_client_close(), which sends its close frame with no time limit and blocked the app task, and with it the screen, touch and Wi-Fi retries, on a dead link. Sends now run on their own task with a 2 s limit, so a slow link no longer stalls the screen either, and a lost connection is noticed even when its event can't be queued.
 - A console command that times out no longer leaves the app task writing its reply into freed memory. The request slot is shared by both tasks and freed by whichever finishes last, so a late reply is dropped instead of corrupting the stack. The slot is host-tested.
 - The device refuses an over-the-air image built for another board, by reading the `HGBOARD=` tag as the image streams in, so a wrong image can no longer reach Wi-Fi and Hermes and pass the rollback check. The plugin's own check stays as the first line.
 - A setting that cannot be saved is reported: `set` answers `@error could not save <key>`, a device key that cannot be saved is logged as an error, and a key longer than NVS allows is refused instead of silently cut.
