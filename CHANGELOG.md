@@ -39,6 +39,7 @@
 
 ### Hermes plugin
 
+- A question from the agent (the `clarify` tool) is spoken on devices that speak replies, with its choices read out by number, as well as shown as text. It used to arrive as text only, so a voice user heard nothing while the agent waited for an answer. The next spoken or typed message answers it, as before. Contributed by Antonio Lourenco (@tozes).
 - `battery_log: true` in the gadget platform's `extra` keeps each paired device's battery readings (voltage, percent, charging, USB power) in a CSV under the plugin's data directory, a row every 30 seconds, to calibrate a board's battery percentage from a full discharge. Off by default. Contributed by Antonio Lourenco (@tozes).
 - Spoken replies stay paced after the text-to-speech producer pauses. A sign error in the hub's stall handling let the rest of a reply go out in one burst after the first pause, which could overflow a device's speaker buffer. A fake-clock test now holds every frame within the playback lead, before and after a stall.
 - Enrollment by unapproved devices is bounded: at most 16 may wait to be paired, 4 per network address, and an unapproved record expires an hour after the device's last contact. `hermes gadget pair --yes` approves blindly only when one device is waiting; `hermes gadget pair <device>` picks one. `hermes gadget devices` marks devices still waiting to pair.
