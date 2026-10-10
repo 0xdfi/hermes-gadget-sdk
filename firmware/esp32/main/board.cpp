@@ -496,4 +496,6 @@ int lcd_power_pin(const BoardConfig& b) {
 #endif
 }
 
+const char* board_tag() { return kBoardTag; }
+
 }  // namespace hgp
