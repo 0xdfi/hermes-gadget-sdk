@@ -454,7 +454,9 @@ class EspUpdater final : public hg::Updater {
  private:
   static constexpr size_t kHeadBytes = 112;  // image + segment headers, then the app description up to its project name
   std::string board_;
-  hg::TagScanner board_tag_{"HGBOARD="};
+  // Searches for the first 8 bytes of board_tag(): a separate "HGBOARD=" literal
+  // here would put a nameless copy of the tag in every image, ahead of the real one.
+  hg::TagScanner board_tag_{std::string_view()};
   const void* target_ = nullptr;             // esp_partition_t
   uint32_t handle_ = 0;                      // esp_ota_handle_t
   bool open_ = false;
