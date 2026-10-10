@@ -9,6 +9,7 @@
 
 ### Firmware
 
+- A weak or lost Wi-Fi link no longer freezes the device until a hard reset. Closing the WebSocket used esp_websocket_client_close(), which sends its close frame with no time limit and blocked the app task, and with it the screen, touch and Wi-Fi retries, on a dead link. Sends now run on their own task with a 2 s limit, so a slow link no longer stalls the screen either, and a lost connection is noticed even when its event can't be queued. Contributed by Antonio Lourenco (@tozes).
 - A console command that times out no longer leaves the app task writing its reply into freed memory. The request slot is shared by both tasks and freed by whichever finishes last, so a late reply is dropped instead of corrupting the stack. The slot is host-tested.
 - The device refuses an over-the-air image built for another board, by reading the `HGBOARD=` tag as the image streams in, so a wrong image can no longer reach Wi-Fi and Hermes and pass the rollback check. The plugin's own check stays as the first line.
 - Builds from `main` with that board check no longer refuse every over-the-air update with "the image is for , not this board". The check's search text put a nameless copy of the `HGBOARD=` tag in every image, ahead of the real one, and the device stopped at it. Images now carry the tag once, and the device, the plugin and the release packager skip a nameless tag in images built before this fix. Contributed by Antonio Lourenco (@tozes).
