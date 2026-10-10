@@ -137,7 +137,10 @@ class WsTransport final : public hg::Transport {
   QueueHandle_t tx_ = nullptr;
   hg::ws::Generations gens_;
   std::string url_, subprotocol_;
-  std::string rx_;  // fragment reassembly (WebSocket task only)
+  // Fragment reassembly, WebSocket task only: an old client's task can still be
+  // delivering a frame after close(), so connect() leaves this alone. Each
+  // message's first frame clears it.
+  std::string rx_;
   uint8_t rx_opcode_ = 0;
 };
 

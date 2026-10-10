@@ -73,7 +73,6 @@ void WsTransport::connect(const std::string& url, const std::string& subprotocol
     return;
   }
   esp_websocket_register_events(client_, WEBSOCKET_EVENT_ANY, &WsTransport::on_event, this);
-  rx_.clear();
   if (esp_websocket_client_start(client_) != ESP_OK) {
     events::post(EventType::WsClosed, "client start failed", 19, gens_.current());
   }
