@@ -35,7 +35,7 @@ TEST("TagScanner: finds the tag whatever the chunk boundaries") {
 }
 
 TEST("TagScanner: a nameless copy of the tag is skipped") {
-  // Images up to 0.2.0 store the bare search text ahead of the real tag.
+  // Images built from main before this fix (never released) store the bare search text ahead of the real tag.
   std::string body = "HGBOARD=";
   body.push_back('\0');
   body += "code HGBOARD=esp32s3-touch-amoled-1.75c";

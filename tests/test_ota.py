@@ -23,7 +23,7 @@ def test_an_image_says_what_it_is():
 
 
 def test_a_nameless_copy_of_the_board_tag_is_skipped():
-    # Images up to 0.2.0 also hold the device's bare search text ahead of the real tag.
+    # Images built from main before this fix (never released) also hold the device's bare search text ahead of the real tag.
     data = bytearray(fake_image(board="esp32s3-touch-amoled-1.75c"))
     data[1024:1033] = b"HGBOARD=\0"
     assert ota.inspect_image(bytes(data)).board == "esp32s3-touch-amoled-1.75c"
