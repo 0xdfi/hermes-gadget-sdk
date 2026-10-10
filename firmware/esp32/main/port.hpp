@@ -296,6 +296,8 @@ class CodecAudio {
  public:
   // 24000: the known-good xiaozhi aipi-lite pipeline is validated at 24 kHz on
   // this silicon (coeff {3072000,24000}); at 16000 playback ran ~2.3x slow.
+  // Every codec board shares it; the ES8311, ES7210 and AW88298 drivers all
+  // support 24 kHz as CodecAudio::begin() configures them.
   static constexpr uint32_t kRate = 24000;
   bool begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus);
   esp_codec_dev_handle_t out() const { return out_; }
