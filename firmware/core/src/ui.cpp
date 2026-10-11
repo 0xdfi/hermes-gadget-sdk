@@ -9,7 +9,7 @@
 namespace hg {
 namespace {
 
-// The background: near black, or true black (unlit) on an emissive panel.
+// The background on backlit panels; emissive panels use true black (Ui::bg_).
 constexpr uint16_t kBg = rgb565(10, 14, 20);
 constexpr uint16_t kBar = rgb565(24, 31, 42);
 constexpr uint16_t kText = rgb565(232, 238, 242);
