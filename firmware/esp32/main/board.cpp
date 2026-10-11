@@ -107,6 +107,7 @@ BoardConfig make() {
   b.pwr_key = {};  // This model has no TCA9554: PWR's short press is read from the AXP2101.
   b.axp_power_key = true;
   b.axp_audio_supply = true;  // ALDO1 supplies the analog audio circuit.
+  b.codec.speaker_pa = true;  // the amplifier draws power only while sound plays
 #endif
   return b;
 }
