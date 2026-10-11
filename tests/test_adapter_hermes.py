@@ -519,3 +519,28 @@ def test_staged_firmware_the_device_refuses_is_dropped(gadget, make_sim, monkeyp
     status = queue.status(device_id)
     assert status["code"] == "wrong_board" and "built for esp32s3-breadboard" in status["error"]
     assert queue.pending() == [] and sim.update_image is None
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_battery_log_records_paired_state_readings_only_when_enabled(loop_thread, tmp_path, monkeypatch, enabled):
+    import plugins.plugin_storage as storage
+    from gateway.config import PlatformConfig
+    from hermes_gadget_plugin.adapter import GadgetAdapter
+
+    monkeypatch.setattr(storage, "plugin_data_dir", lambda name: tmp_path / "plugin-data" / name)
+    extra = {"host": "127.0.0.1", "port": 0, **({"battery_log": True} if enabled else {})}
+    adapter = GadgetAdapter(PlatformConfig(enabled=True, extra=extra))
+    assert loop_thread.run(adapter.connect())
+    try:
+        reading = {"battery_mv": 3950, "battery_percent": 72, "charging": 0}
+        unpaired = types.SimpleNamespace(device_id="hg-0123456789abcdef", paired=False)
+        loop_thread.run(adapter.on_state(unpaired, reading))
+        assert not (tmp_path / "plugin-data" / "gadget" / "battery" / "hg-0123456789abcdef.csv").exists()
+        session = types.SimpleNamespace(device_id="hg-284c3f4387c04fb8", paired=True)
+        loop_thread.run(adapter.on_state(session, reading))
+        log = tmp_path / "plugin-data" / "gadget" / "battery" / "hg-284c3f4387c04fb8.csv"
+        assert log.exists() == enabled
+        if enabled:
+            assert log.read_text().splitlines()[1].split(",")[2:5] == ["3950", "72", "0"]
+    finally:
+        loop_thread.run(adapter.disconnect())
