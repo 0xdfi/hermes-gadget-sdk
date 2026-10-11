@@ -139,8 +139,8 @@ class Power {
   virtual bool power_off() = 0;
   // True once per short press of a power key only the PMIC can see. Polled.
   virtual bool take_key_press() { return false; }
-  // Whether external (USB) power is present right now: a cheap read, polled while
-  // the screen is off. Unknown means "assume plugged in", which never dozes.
+  // Whether external (USB) power is present right now: a cheap read. Unknown
+  // counts as plugged in, so Wi-Fi retries keep their shortest interval.
   virtual std::optional<bool> external_power() { return std::nullopt; }
 };
 
