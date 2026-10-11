@@ -131,10 +131,10 @@ void App::settings_input(Button button, bool pressed) {
     case Menu::Back: close_settings(); break;
     case Menu::WifiSetup: start_wifi_setup(); break;
     case Menu::Power:
-    {
-      static const char* const kNext[] = {"percentage", "both", "off", "icon"};  // after Icon, Percentage, Both, Off
-      console(std::string("set battery_display ") + kNext[static_cast<int>(battery_display_)]);
-    }
+      if (battery_readable()) {
+        static const char* const kNext[] = {"percentage", "both", "off", "icon"};  // after Icon, Percentage, Both, Off
+        console(std::string("set battery_display ") + kNext[static_cast<int>(battery_display_)]);
+      }
       break;
     case Menu::Info:
     case Menu::Closed: break;
@@ -154,6 +154,10 @@ void App::settings_tick() {
     check_result_ = "Tone finished. Did you hear it?";
     update_model();
   }
+}
+
+bool App::battery_readable() const {
+  return power_status_ && power_status_->battery_percent && power_status_->battery_present != false;
 }
 
 void App::settings_model() {
@@ -214,7 +218,7 @@ void App::settings_model() {
         if (p.external_power) m.body += *p.external_power ? "USB power\n" : "No USB power\n";
         if (p.battery_percent && *p.battery_percent <= 10 && p.external_power == false) m.body += "Low battery: connect USB.\n";
       }
-    {
+    if (battery_readable()) {  // nothing to choose when no percentage can appear
       static const char* const kShown[] = {"Icon", "Percent", "Both", "Off"};
       m.body += std::string("Indicator: ") + kShown[static_cast<int>(battery_display_)] + "\n" +
                 (profile_.touch_screen ? "Tap to change" : profile_.talk_label + " to change");

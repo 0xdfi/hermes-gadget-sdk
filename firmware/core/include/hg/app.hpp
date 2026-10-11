@@ -256,6 +256,8 @@ class App {
   // What the battery indicator shows, in the order a tap cycles through.
   enum class BatteryIndicator : uint8_t { Icon, Percentage, Both, Off };
   BatteryIndicator battery_display_ = BatteryIndicator::Off;
+  // Whether the indicator could show anything: a percentage from a fitted battery.
+  bool battery_readable() const;
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
   uint8_t wake_buttons_ = 0;
 

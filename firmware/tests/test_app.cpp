@@ -1557,6 +1557,35 @@ TEST("battery indicator: off by default, follows readings once chosen, and each 
   CHECK_EQ(int(r.app.model().battery), 65);
 }
 
+TEST("battery indicator: the battery page offers it only when a percentage can appear") {
+  struct Battery : hg::Power {
+    std::optional<hg::PowerStatus> status;
+    std::optional<hg::PowerStatus> read() override { return status; }
+    bool power_off() override { return true; }
+  } battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.open_settings();
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  for (const auto& reading : {std::optional<hg::PowerStatus>{},                                      // no readings
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{false, std::nullopt, 0, false, true}},  // no battery
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{true, 3850, std::nullopt, false, false}}}) {  // no percentage
+    battery.status = reading;
+    r.advance(5000);
+    CHECK(r.app.model().body.find("Indicator") == std::string::npos);
+    r.app.console("talk"); r.app.console("release");
+    CHECK(r.fake.kv.find("battery_display") == r.fake.kv.end());  // a select changes nothing
+    CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  }
+  battery.status = hg::PowerStatus{true, 3850, 65, false, false};
+  r.advance(5000);
+  CHECK(r.app.model().body.find("Indicator: Off") != std::string::npos);
+  r.app.console("talk"); r.app.console("release");
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("icon"));
+}
+
 TEST("battery indicator: touch screens say tap") {
   struct Battery : hg::Power {
     std::optional<hg::PowerStatus> read() override { return hg::PowerStatus{true, 3850, 65, false, false}; }
