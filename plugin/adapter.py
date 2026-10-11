@@ -403,7 +403,8 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             message_type=MessageType.TEXT, allow_gateway_control=False))
 
     async def on_state(self, session: DeviceSession, sensors: dict) -> None:
-        if not self._battery_log:
+        # Only paired devices: an unpaired one could otherwise write files at will.
+        if not self._battery_log or not session.paired:
             return
         try:
             self._battery_log.record(session.device_id, sensors)

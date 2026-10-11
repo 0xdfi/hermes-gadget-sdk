@@ -40,7 +40,7 @@ platforms:
       # tls_key: /path/key.pem
 ```
 
-`battery_log: true` writes each device's battery readings to `<hermes home>/plugin-data/gadget/battery/<device id>.csv`: a row every 30 seconds, and at once when the power source changes, with the time, `battery_mv`, `battery_percent`, `charging`, `external_power` and `battery_present`. Devices that report no battery voltage or percentage add nothing. A file that reaches 8 MB moves to `<device id>.1.csv`, replacing the previous one. Use a log of a full discharge, from a full charge to shutdown with USB unplugged, to check or fit a board's voltage-to-percent estimate. It is off by default and the gateway needs a restart after changing it.
+`battery_log: true` writes each paired device's battery readings to `<hermes home>/plugin-data/gadget/battery/<device id>.csv`: a row every 30 seconds, and at once when the power source changes, with the time, `battery_mv`, `battery_percent`, `charging`, `external_power` and `battery_present`. Devices that report no battery voltage or percentage add nothing. A file that reaches 8 MB moves to `<device id>.1.csv`, replacing the previous one. Use a log of a full discharge, from a full charge to shutdown with USB unplugged, to check or fit a board's voltage-to-percent estimate. It is off by default and the gateway needs a restart after changing it.
 
 Secrets go in `~/.hermes/.env`, following Hermes's rule that `.env` is only for secrets:
 
