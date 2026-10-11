@@ -286,6 +286,16 @@ TEST("charge curve: plugging in never drops below what battery showed; it holds 
   CHECK_EQ(percent.update(4190, Charge::Done, std::nullopt), uint8_t(100));
 }
 
+TEST("charge curve: a top-up after charging is done keeps showing 100; unplugging starts afresh") {
+  hg::BatteryPercent percent(hg::kAmoled175cCurve, hg::kAmoled175cChargeCurve);
+  CHECK_EQ(percent.update(4190, Charge::Done, std::nullopt), uint8_t(100));
+  // Left on USB, the PMIC tops the cell up again once it sags: the charge curve
+  // alone would read about 83 here.
+  for (int i = 0; i < 12; ++i) CHECK_EQ(percent.update(4120, Charge::Charging, std::nullopt), uint8_t(100));
+  CHECK_EQ(percent.update(4195, Charge::Done, std::nullopt), uint8_t(100));
+  CHECK_EQ(percent.update(4050, Charge::Discharging, std::nullopt), uint8_t(94));  // the discharge curve, not held at 100
+}
+
 TEST("charge curve: the 1.75C charge table rises monotonically from empty to 99") {
   const hg::Curve c = hg::kAmoled175cChargeCurve;
   CHECK_EQ(c.points[0].percent, uint8_t(99));

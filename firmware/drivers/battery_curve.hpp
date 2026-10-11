@@ -72,7 +72,7 @@ inline constexpr Curve kAmoled175cChargeCurve{kAmoled175cChargePoints,
 // - charging, the charge curve (or, without one, the PMIC's gauge), never falling
 //   and at most 99 (the curve's top); it starts no lower than what battery showed before plugging in,
 //   while the voltage is still climbing;
-// - charge done, 100.
+// - charge done, 100, and still 100 while the PMIC tops the cell up again on USB.
 class BatteryPercent {
  public:
   static constexpr size_t kWindow = 12;
@@ -82,8 +82,8 @@ class BatteryPercent {
 
   uint8_t update(uint16_t mv, Charge charge, std::optional<uint8_t> gauge) {
     if (charge == Charge::Done) {
-      flow_ = Flow::None;
-      shown_.reset();
+      flow_ = Flow::Full;
+      shown_ = 100;
       return 100;
     }
     const Flow flow = charge == Charge::Charging ? Flow::In : Flow::Out;
@@ -93,8 +93,9 @@ class BatteryPercent {
       return gauge ? *gauge : percent_on_curve(discharge_, mv);
     }
     if (flow != flow_) {
-      // Plugging in keeps what battery showed as a floor; unplugging starts afresh.
-      if (!(flow == Flow::In && flow_ == Flow::Out)) shown_.reset();
+      // Plugging in keeps what battery showed as a floor, and a top-up after
+      // charge done keeps 100; unplugging starts afresh.
+      if (!(flow == Flow::In && (flow_ == Flow::Out || flow_ == Flow::Full))) shown_.reset();
       flow_ = flow;
       count_ = 0;
     }
@@ -116,7 +117,7 @@ class BatteryPercent {
   }
 
  private:
-  enum class Flow { None, Out, In };
+  enum class Flow { None, Out, In, Full };
   Curve discharge_, charge_;
   std::array<uint16_t, kWindow> window_{};
   size_t next_ = 0, count_ = 0;
