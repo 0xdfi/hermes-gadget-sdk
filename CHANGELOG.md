@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- Boards with a separate ES7210 microphone ADC (the AMOLED-1.75 and 1.75C, the 1.85C V2 and the LCD-1.54) power it down between recordings instead of running and reading it continuously, which saves battery. Recording starts by draining the audio the I2S channel kept while the ADC was off and dropping 20 ms while it settles. Boards whose microphone shares the speaker's codec keep reading continuously. Contributed by Antonio Lourenco (@tozes).
 - AMOLED boards (the 1.75, 1.75C and 1.8) draw the background true black instead of near black, so those pixels stay off and draw no power. Backlit LCDs keep the near-black background. Display drivers opt in with `DisplayInfo::emissive`. Contributed by Antonio Lourenco (@tozes).
 - Battery life on the AMOLED-1.75C: the speaker amplifier is powered only while sound plays, and the CPU scales down to 80 MHz when idle instead of running at 240 MHz. AMOLED panels also switch their output off during screen sleep, not only their brightness. Contributed by Antonio Lourenco (@tozes).
 - The AMOLED-1.75C's PWR key puts the screen to sleep and wakes it with a short press. Only the AXP2101 sees this key, so the firmware enables the PMIC's short-press interrupt and polls it every 100 ms; holding PWR keeps the PMIC's own power behavior. Contributed by Antonio Lourenco (@tozes).
