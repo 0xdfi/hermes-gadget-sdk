@@ -1294,7 +1294,7 @@ TEST("power: a prompt turns a screen the power key turned off back on") {
   CHECK(r.app.screen() == hg::Screen::Prompt);
 }
 
-TEST("power: losing the connection turns a screen the power key turned off back on") {
+TEST("power: a dark screen stays dark while the connection drops and comes back") {
   KeyPower key;
   Rig r;
   r.fake.backlight = true;
@@ -1304,8 +1304,25 @@ TEST("power: losing the connection turns a screen the power key turned off back 
   r.advance(100);
   CHECK_EQ(r.fake.brightness, 0);
   r.app.on_transport_closed("gone");
-  r.advance(100);
-  CHECK_EQ(r.fake.brightness, 100);  // as with Screen timeout: the reconnecting screen shows
+  r.advance(5000);
+  CHECK_EQ(r.fake.brightness, 0);  // reconnecting in the dark (a commute must not light it)
+  r.app.on_network(false, "Wi-Fi lost");
+  r.app.on_network(true, "192.168.1.146");
+  r.advance(5000);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_button(hg::Button::Talk, true);  // the user still wakes it
+  CHECK_EQ(r.fake.brightness, 100);
+  r.app.on_button(hg::Button::Talk, false);
+}
+
+TEST("power: a lit screen stays lit while reconnecting, as before") {
+  Rig r;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.app.on_transport_closed("gone");
+  r.advance(60000);  // reconnect attempts fail: still not settled
+  CHECK_EQ(r.fake.brightness, 100);
 }
 
 TEST("power: the power key brings a dimmed screen back to full brightness") {
@@ -1538,6 +1555,35 @@ TEST("battery indicator: off by default, follows readings once chosen, and each 
   r.app.console("settings close");
   r.app.console("set battery_display both");
   CHECK_EQ(int(r.app.model().battery), 65);
+}
+
+TEST("battery indicator: the battery page offers it only when a percentage can appear") {
+  struct Battery : hg::Power {
+    std::optional<hg::PowerStatus> status;
+    std::optional<hg::PowerStatus> read() override { return status; }
+    bool power_off() override { return true; }
+  } battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.open_settings();
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  for (const auto& reading : {std::optional<hg::PowerStatus>{},                                      // no readings
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{false, std::nullopt, 0, false, true}},  // no battery
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{true, 3850, std::nullopt, false, false}}}) {  // no percentage
+    battery.status = reading;
+    r.advance(5000);
+    CHECK(r.app.model().body.find("Indicator") == std::string::npos);
+    r.app.console("talk"); r.app.console("release");
+    CHECK(r.fake.kv.find("battery_display") == r.fake.kv.end());  // a select changes nothing
+    CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  }
+  battery.status = hg::PowerStatus{true, 3850, 65, false, false};
+  r.advance(5000);
+  CHECK(r.app.model().body.find("Indicator: Off") != std::string::npos);
+  r.app.console("talk"); r.app.console("release");
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("icon"));
 }
 
 TEST("battery indicator: touch screens say tap") {
