@@ -43,6 +43,6 @@ Volume, brightness, talk mode, and screen timeout survive restarts. Unavailable 
 
 Screen timeout is off by default. When enabled, a brightness-capable display dims halfway through the idle period, then goes dark. The first button press or touch wakes it without recording or answering a prompt. Incoming replies and prompts wake it too. Recording, playback, Wi-Fi setup, pairing and updates keep it awake. The settings menu sleeps like any other screen, and the input that wakes it leaves the menu on the same item, including a running hardware check. The processor and Wi-Fi remain running; this is screen sleep. AMOLED panels also switch their output off while dark. Use the board's Power off control to shut down the device.
 
-On the AMOLED-1.75C, a short press of PWR puts the screen to sleep the same way at any time, whether or not Screen timeout is on. Press PWR again, touch the screen or press BOOT to wake it. Replies, prompts and connection changes wake it as well.
+On the AMOLED-1.75C, a short press of PWR puts the screen to sleep the same way, whether or not Screen timeout is on. The same activities keep it awake: a press during recording, playback, Wi-Fi setup, pairing or an update does nothing. Press PWR again, touch the screen or press BOOT to wake it. Replies, prompts and connection changes wake it as well.
 
 Incoming confirmation prompts and firmware updates close settings. You cannot open settings during a prompt or update. The USB console also accepts `settings`, `settings close`, and `set brightness 50`.
