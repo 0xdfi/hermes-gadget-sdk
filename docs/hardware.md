@@ -523,6 +523,7 @@ gadget> status
 | `new-session` | Start a fresh conversation (same as holding CANCEL for 2 s) |
 | `settings` / `settings close` | Open or close the local settings and hardware checks |
 | `wifi-setup` / `wifi-setup close` | Start or cancel phone setup; the start response includes temporary network credentials |
+| `phone` / `phone pair` / `phone pair close` / `phone forget` | On boards with Bluetooth: phone app state, open or close pairing, or remove every paired phone ([protocol](protocol.md#phone-app-over-bluetooth)) |
 | `yes` / `no` | Answer the question on screen |
 | `reconnect` | Drop and re-open the Hermes connection |
 | `forget-key` | New device identity on next boot (re-enrollment and re-pairing) |
@@ -545,6 +546,6 @@ Machine-readable lines start with `@`, so tools can drive a bench device. `herme
 ## Known limits of the reference firmware
 
 - Push-to-talk or tap with energy VAD. There is no wake word; the protocol leaves room for one (`audio.start.mode`).
-- Wi-Fi setup works over USB or a temporary password-protected network. There is no BLE setup or dedicated phone app.
+- Wi-Fi setup works over USB or a temporary password-protected network. A Bluetooth link for a phone app exists, but no board enables it yet: each board turns it on after it passes the [Bluetooth checks](hardware-validation.md#bluetooth). There is no phone app in this repository.
 - Firmware updates are authorized with the device key, but images aren't signed: the bootloader runs whatever a trusted Hermes installs. Secure Boot isn't enabled.
 - The text font is ASCII only; the host folds other characters.

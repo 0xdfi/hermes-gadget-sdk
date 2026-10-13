@@ -100,6 +100,61 @@ Failed or untested steps:
 Sanitized logs and diagnostics:
 ```
 
+## Bluetooth
+
+The [phone app link](protocol.md#phone-app-over-bluetooth) is off on every board. Turning it on adds NimBLE, ESP-IDF's Bluetooth LE stack, to the image: about 204 KB of flash on the AMOLED-1.75C (measured: 1,335,152 → 1,543,968 bytes) plus its RAM once it runs. Bluetooth also shares the antenna with Wi-Fi. So each board turns it on only after someone has checked it on that board.
+
+To try it on a board, build it yourself with two changes, then flash over USB:
+
+1. In `firmware/esp32/main/board.cpp`, set `b.bluetooth = true;` in the board's section.
+2. Append these lines to `firmware/esp32/boards/<board>/sdkconfig.defaults`:
+
+   ```text
+   # Bluetooth phone link (docs/hardware-validation.md#bluetooth).
+   CONFIG_BT_ENABLED=y
+   # CONFIG_BT_BLUEDROID_ENABLED is not set
+   CONFIG_BT_NIMBLE_ENABLED=y
+   # CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set
+   # CONFIG_BT_NIMBLE_ROLE_OBSERVER is not set
+   CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+   CONFIG_BT_NIMBLE_NVS_PERSIST=y
+   ```
+
+Delete the generated `firmware/esp32/sdkconfig.<board>` before building, or the configuration check stops the build. A board with the flag but without these lines logs `this board enables Bluetooth, but the build has no NimBLE` and runs without the link.
+
+With no app yet, use a generic Bluetooth LE app such as nRF Connect or LightBlue. Check:
+
+1. **Boot:** the log shows `hg.phone: Bluetooth ready`. Record `diag` free memory with Bluetooth on and off.
+2. **Silence:** with no phone paired, the phone's scanner doesn't see the device.
+3. **Pairing:** **Phone app** in device settings shows the pairing screen and the device appears in the scanner. Writing to the command characteristic makes the phone ask for a code; the screen shows six digits; typing them pairs. A wrong code fails, and so does pairing after the two minutes are up or after CANCEL.
+4. **Commands:** subscribe to the reply characteristic, write `status`, `get name`, `set volume 40` and `diag log`. Each reply arrives complete and ends with a `0x00` byte, including the long `diag log`.
+5. **Wi-Fi setup:** `set wifi_ssid` and `set wifi_pass` from the phone join a network.
+6. **Reconnect:** after a restart, the paired phone reconnects and sends commands without pairing again.
+7. **Refusal:** a second phone that hasn't paired can't write commands, and can't pair while pairing is closed.
+8. **Forget:** `phone forget` drops the connected phone and the device stops advertising; `factory-reset` removes paired phones too.
+9. **Coexistence:** with a phone connected, a voice turn and its spoken reply play without new dropouts, and an OTA update still installs.
+10. **Long run:** a phone connected for an hour of normal use, with no resets and stable free memory.
+
+Use this report format:
+
+```text
+Model / PCB revision:
+Firmware commit (with the two changes above):
+Phone model / OS / app used:
+Image size and free memory, Bluetooth on and off:
+Silence, pairing, wrong code, closed window:
+Commands and long replies:
+Wi-Fi setup over Bluetooth:
+Reconnect after restart:
+Refusal of an unpaired phone:
+Forget / factory reset:
+Voice and OTA with a phone connected:
+One-hour run:
+Failed or untested steps:
+```
+
+Attach the report to a pull request that makes the two changes for that board and adds Bluetooth to its row in the table above. The board's next release then ships with the link. A report for one board doesn't turn it on for another.
+
 ## Support labels
 
 - **Experimental:** the port builds and passes automated checks, but no complete physical report is linked for that configuration.
