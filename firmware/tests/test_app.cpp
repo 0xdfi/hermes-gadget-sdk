@@ -98,12 +98,13 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
 
   // Speaker
   bool spk_open = false;
+  bool spk_draining = false;  // ended, but the last audio is still playing
   size_t spk_samples = 0;
   bool begin(uint32_t) override { return spk_open = true; }
   void write(const int16_t*, size_t n) override { spk_samples += n; }
   void end() override { spk_open = false; }
   void abort() override { spk_open = false; }
-  bool busy() const override { return spk_open; }
+  bool busy() const override { return spk_open || spk_draining; }
   void set_volume(uint8_t percent) override { volume = percent; }
 
   hg::Hal hal() {
@@ -310,6 +311,56 @@ TEST("app: push-to-talk streams audio and shows the reply") {
   r.advance(200);
   CHECK(r.app.screen() == hg::Screen::Ready);
   CHECK_EQ(r.app.model().body, std::string("It is sunny."));
+}
+
+TEST("app: a turn lasts from TALK until the reply has finished playing") {
+  Rig r;
+  r.bring_online(true);
+  CHECK(!r.app.in_turn());
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(r.app.in_turn());
+  std::vector<int16_t> pcm(1600, 1000);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.in_turn());  // waiting for the reply
+  r.server(R"({"type":"turn.start","turn":"a1"})");
+  r.server(R"({"type":"audio.start","stream":5,"rate":16000,"format":"pcm16"})");
+  r.server(R"({"type":"reply","turn":"a1","text":"It is sunny."})");
+  r.server(R"({"type":"turn.end","turn":"a1","outcome":"success"})");
+  r.server(R"({"type":"audio.end","stream":5})");
+  r.fake.spk_draining = true;
+  r.advance(200);
+  CHECK(r.app.in_turn());  // the text is done, the last audio is still playing
+  r.fake.spk_draining = false;
+  r.advance(200);
+  CHECK(!r.app.in_turn());
+}
+
+TEST("app: a reply that arrives on its own is a turn while it plays, and a lost connection ends one") {
+  Rig r;
+  r.bring_online(true);
+  // A question from the agent: its text, then its spoken version.
+  r.server(R"({"type":"reply","text":"Red or blue?"})");
+  r.server(R"({"type":"audio.start","stream":3,"rate":16000,"format":"pcm16"})");
+  CHECK(r.app.in_turn());
+  r.server(R"({"type":"audio.end","stream":3})");
+  r.advance(7000);  // past the 6 s the app waits for more of a reply without turn.end
+  CHECK(!r.app.in_turn());
+
+  r.app.on_button(hg::Button::Talk, true);
+  std::vector<int16_t> pcm(1600, 1000);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.in_turn());
+  r.app.on_transport_closed("gone");
+  r.advance(200);
+  CHECK(!r.app.in_turn());
 }
 
 TEST("app: a short tap is discarded instead of sent") {

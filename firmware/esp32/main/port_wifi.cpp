@@ -171,7 +171,7 @@ void Wifi::tick(hg::App& app, uint32_t now) {
                 (close_at_ && static_cast<int32_t>(now - close_at_) >= 0))) app.close_wifi_setup();
   if (configured_ && retry_.due(now)) attempt(now);
   hold_while_attempting();
-  apply_power_save(now);
+  apply_power_save(now, app.in_turn());
 }
 
 void Wifi::attempt(uint32_t now) {
@@ -212,14 +212,11 @@ void Wifi::scan_done() {
   if (esp_wifi_connect() != ESP_OK) retry_.start_failed(now_ms());
 }
 
-void Wifi::apply_power_save(uint32_t now) {
-  // Modem sleep lets the access point hold downlink frames until the next DTIM wake-up, so
-  // reply audio arrives in bursts that overflow the speaker buffer. Keep it for battery only;
-  // a board without a battery reading counts as plugged in.
-  if (power_save_ >= 0 && now - power_save_checked_at_ < 5000) return;
-  power_save_checked_at_ = now;
-  const int want = on_battery && on_battery() ? 1 : 0;
-  if (want != power_save_ && esp_wifi_set_ps(want ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK) power_save_ = want;
+void Wifi::apply_power_save(uint32_t now, bool in_turn) {
+  // Modem sleep only on battery and outside a turn (wifi_power.hpp); a board without a
+  // battery reading counts as plugged in.
+  const auto want = power_save_.change(now, [this] { return on_battery && on_battery(); }, in_turn);
+  if (want && esp_wifi_set_ps(*want ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK) power_save_.applied(*want);
 }
 
 void Wifi::on_event(void*, const char* base, int32_t id, void* data) {
