@@ -6,6 +6,7 @@
 
 #include "hg/crypto.hpp"
 #include "hg/protocol.hpp"
+#include "hg/wifi_networks.hpp"
 
 namespace hg {
 namespace {
@@ -1603,13 +1604,15 @@ std::string App::console(std::string_view raw) {
     for (const char* k : kSettingKeys) keys += std::string(" ") + k;
     for (const auto& k : profile_.extra_settings) keys += " " + k;
     return "@help commands: status | diag [log] | get <key> | set <key> <value> | say <text> | talk | release | "
-           "cancel | new-session | settings [close] | wifi-setup [close] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
+           "cancel | new-session | settings [close] | wifi-setup [close] | wifi [list | add <ssid> [password] | join <ssid> | "
+           "forget <ssid>] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
   }
   if (cmd == "status") return "@status " + status_json();
   if (cmd == "wifi-setup") {
     if (rest == "close") { close_wifi_setup(); return "@ok Wi-Fi setup closed"; }
     return start_wifi_setup() ? "@ok " + wifi_setup_text_ : "@error Wi-Fi setup unavailable";
   }
+  if (cmd == "wifi") return wifi_command(rest);
   if (cmd == "settings") {
     if (rest == "close") { close_settings(); return "@ok settings closed"; }
     return open_settings() ? "@ok settings" : "@error settings unavailable during a prompt or update";
@@ -1642,6 +1645,11 @@ std::string App::console(std::string_view raw) {
     if (value.empty()) hal_.storage->erase(key);
     else if (!hal_.storage->set(key, value)) return "@error could not save " + key;
     load_settings();
+    if (key == "wifi_ssid" || key == "wifi_pass") {
+      // These keys hold the first saved network: bring the list in line.
+      WifiNetworks networks = WifiNetworks::load(*hal_.storage);
+      if (networks.dirty()) networks.save(*hal_.storage);
+    }
     if (key == "server" || key == "token") {
       // Reconnect with the new endpoint or credentials.
       fatal_.clear();
@@ -1702,6 +1710,7 @@ std::string App::console(std::string_view raw) {
     if (cmd == "factory-reset") {
       for (const char* k : kSettingKeys) hal_.storage->erase(k);
       for (const auto& k : profile_.extra_settings) hal_.storage->erase(k);
+      hal_.storage->erase("wifi_nets");
     }
     return "@ok " + cmd + " (restart the device to apply)";
   }

@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- The device keeps up to five Wi-Fi networks and joins whichever is in range. When the link drops it retries the same network once, then scans and picks the network that last worked if it is there, else the strongest saved one. A network that keeps failing is passed over while another is in range. The console's `wifi list`, `wifi add`, `wifi join` and `wifi forget` manage the list, and `wifi add` saves a network without joining it. `set wifi_ssid`, the web installer and phone setup now save their network first and keep the others. The first network is also kept under the old keys, so older firmware still finds it. Contributed by Antonio Lourenco (@tozes).
 - Wi-Fi modem sleep is on only while the board runs on its battery. Plugged in, or on a board that cannot tell, the radio stays awake, so reply audio no longer arrives in bursts that overflow the speaker buffer and crackle. Reported and diagnosed by @burndown.
 - The I2S microphone driver (breadboard and custom-pin boards) keeps the samples of a read that times out part way. On ESP-IDF 6.0.1 nearly every read returned `ESP_ERR_TIMEOUT` with one DMA buffer filled, the driver dropped it, and a held TALK sent 0 bytes of audio, so Hermes never replied. Contributed by @burndown.
 - A dark screen stays dark while Wi-Fi or the connection to Hermes drops and reconnects; it used to light up and, without a screen timeout, stay on until someone turned it off. Contributed by Antonio Lourenco (@tozes).

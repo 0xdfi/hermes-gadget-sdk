@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <vector>
 
+#include "hg/console_args.hpp"
+#include "hg/wifi_networks.hpp"
+
 namespace hg {
 
 bool App::settings_hold_live() const { return !prompt_showing() && !ota_busy() && !wifi_setup_open(); }
@@ -275,6 +278,50 @@ void App::close_wifi_setup() {
   wifi_setup_qr_ = {};
   if (on_wifi_setup_close) on_wifi_setup_close();
   update_model();
+}
+
+// `wifi [list | add <ssid> [password] | join <ssid> | forget <ssid>]`. Arguments
+// with spaces or quotes go in double quotes (hg/console_args.hpp).
+std::string App::wifi_command(std::string_view line) {
+  static const char* const kUsage = "@error usage: wifi [list | add <ssid> [password] | join <ssid> | forget <ssid>]";
+  if (!hal_.storage) return "@error no storage";
+  const std::vector<std::string> args = split_args(line);
+  const std::string sub = args.empty() ? "list" : args[0];
+  WifiNetworks networks = WifiNetworks::load(*hal_.storage);
+  if (sub == "list") {
+    if (args.size() > 1) return kUsage;
+    json::Value list = json::Value::array();
+    for (const auto& w : networks.all()) {
+      json::Value e = json::Value::object();
+      e.set("ssid", w.ssid).set("tested", w.tested).set("open", w.password.empty());
+      list.push(std::move(e));
+    }
+    json::Value out = json::Value::object();
+    out.set("networks", list).set("max", static_cast<unsigned>(WifiNetworks::kMax));
+    if (current_wifi) {
+      const std::string current = current_wifi();
+      if (!current.empty()) out.set("current", current);
+    }
+    return "@wifi " + out.dump();
+  }
+  if (args.size() < 2 || args.size() > (sub == "add" ? 3u : 2u)) return kUsage;
+  const std::string& ssid = args[1];
+  if (sub == "add") {
+    const std::string password = args.size() > 2 ? args[2] : std::string();
+    const std::string error = wifi_network_error(ssid, password);
+    if (!error.empty()) return "@error " + error;
+    if (networks.add(ssid, password) == WifiNetworks::Added::Full)
+      return "@error " + std::to_string(WifiNetworks::kMax) + " networks saved; forget one first";
+  } else if (sub == "join" || sub == "forget") {
+    if (networks.find(ssid) == networks.size()) return "@error no saved network " + ssid;
+    if (sub == "join") networks.move_first(ssid);
+    else networks.forget(ssid);
+  } else {
+    return kUsage;
+  }
+  if (!networks.save(*hal_.storage)) return "@error could not save the network list";
+  if (on_setting_changed) on_setting_changed("wifi_nets");
+  return "@ok wifi " + sub;
 }
 
 }  // namespace hg

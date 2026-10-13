@@ -1827,3 +1827,78 @@ TEST("app: the device still gets an identity when its key can't be saved") {
   CHECK(!r.app.device_id().empty());
   CHECK(r.fake.kv.count("device_key") == 0);
 }
+
+TEST("app: wifi saves, lists, joins and forgets networks without showing passwords") {
+  Rig r;
+  std::vector<std::string> changed;
+  r.app.on_setting_changed = [&](std::string_view key) { changed.emplace_back(key); };
+  r.app.current_wifi = [] { return std::string("My Home"); };
+  CHECK_EQ(r.app.console(R"(wifi add "My Home" "pass word 1")"), std::string("@ok wifi add"));
+  CHECK_EQ(r.app.console("wifi add Phone"), std::string("@ok wifi add"));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("My Home"));  // the first one, for older firmware
+  const std::string list = r.app.console("wifi list");
+  CHECK(list.rfind("@wifi ", 0) == 0);
+  Value v;
+  CHECK(hg::json::parse(list.substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(2));
+  CHECK_EQ(v["networks"][0]["ssid"].as_string(), std::string("My Home"));
+  CHECK(!v["networks"][0]["tested"].as_bool(true));
+  CHECK(!v["networks"][0]["open"].as_bool(true));
+  CHECK(v["networks"][1]["open"].as_bool());
+  CHECK_EQ(v["current"].as_string(), std::string("My Home"));
+  CHECK_EQ(v["max"].as_int(), int64_t(5));
+  CHECK(list.find("pass word") == std::string::npos);
+  CHECK_EQ(r.app.console("wifi"), list);
+
+  CHECK_EQ(r.app.console("wifi join Phone"), std::string("@ok wifi join"));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("Phone"));
+  CHECK(!r.fake.kv.count("wifi_pass"));
+  CHECK_EQ(r.app.console(R"(wifi forget "My Home")"), std::string("@ok wifi forget"));
+  CHECK_EQ(changed, std::vector<std::string>({"wifi_nets", "wifi_nets", "wifi_nets", "wifi_nets"}));
+  CHECK_EQ(r.app.console("wifi forget Elsewhere"), std::string("@error no saved network Elsewhere"));
+  CHECK_EQ(r.app.console("wifi join Elsewhere"), std::string("@error no saved network Elsewhere"));
+  CHECK_EQ(changed.size(), size_t(4));
+}
+
+TEST("app: wifi refuses bad networks, a sixth network and malformed commands") {
+  Rig r;
+  CHECK(r.app.console("wifi add Home short").rfind("@error Use an 8..63", 0) == 0);
+  CHECK(r.app.console(R"(wifi add "")").rfind("@error Network name", 0) == 0);
+  for (int i = 0; i < 5; ++i) CHECK_EQ(r.app.console("wifi add Net" + std::to_string(i)), std::string("@ok wifi add"));
+  CHECK_EQ(r.app.console("wifi add Net5"), std::string("@error 5 networks saved; forget one first"));
+  CHECK(r.app.console("wifi add").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi add a b c").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi join a b").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi list extra").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi rename a").rfind("@error usage", 0) == 0);
+  r.fake.storage_full = true;
+  CHECK_EQ(r.app.console("wifi forget Net0"), std::string("@error could not save the network list"));
+}
+
+TEST("app: set wifi_ssid and wifi_pass put a network first and keep the others") {
+  Rig r;
+  r.app.console("wifi add Office password2");
+  CHECK_EQ(r.app.console("set wifi_ssid Home"), std::string("@ok wifi_ssid"));
+  CHECK_EQ(r.app.console("set wifi_pass password1"), std::string("@ok wifi_pass"));
+  Value v;
+  CHECK(hg::json::parse(r.app.console("wifi list").substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(2));
+  CHECK_EQ(v["networks"][0]["ssid"].as_string(), std::string("Home"));
+  CHECK_EQ(v["networks"][1]["ssid"].as_string(), std::string("Office"));
+  CHECK(r.fake.kv["wifi_nets"].find("password1") != std::string::npos);  // saved, not just mirrored
+  // Erasing the name forgets that network; the next one takes its place.
+  CHECK_EQ(r.app.console("set wifi_ssid"), std::string("@ok wifi_ssid"));
+  CHECK(hg::json::parse(r.app.console("wifi list").substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(1));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("Office"));
+  CHECK_EQ(r.app.console("get wifi_pass"), std::string(R"(@value {"key":"wifi_pass","value":"<set>"})"));
+}
+
+TEST("app: factory-reset forgets every saved network") {
+  Rig r;
+  r.app.console("wifi add Home password1");
+  r.app.console("wifi add Office password2");
+  r.app.console("factory-reset");
+  CHECK(!r.fake.kv.count("wifi_nets"));
+  CHECK(!r.fake.kv.count("wifi_ssid"));
+}
