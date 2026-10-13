@@ -1902,3 +1902,169 @@ TEST("app: factory-reset forgets every saved network") {
   CHECK(!r.fake.kv.count("wifi_nets"));
   CHECK(!r.fake.kv.count("wifi_ssid"));
 }
+
+namespace {
+
+// The port's side of phone pairing, as the hooks see it.
+struct FakePhone {
+  int pair_calls = 0, close_calls = 0, forget_calls = 0;
+  bool can_pair = true;
+  void attach(hg::App& app) {
+    app.on_phone_pair = [this] { ++pair_calls; return can_pair; };
+    app.on_phone_pair_close = [this] { ++close_calls; };
+    app.on_phone_forget = [this] { ++forget_calls; };
+  }
+};
+
+// Steps through the settings menu until `detail` shows; false if it never does.
+bool find_setting(Rig& r, const std::string& detail) {
+  for (int i = 0; i < 20; ++i) {
+    if (r.app.model().detail == detail) return true;
+    r.app.console("cancel");
+  }
+  return false;
+}
+
+}  // namespace
+
+TEST("phone: boards without Bluetooth have no phone item, command or status") {
+  Rig r;
+  r.bring_online(true);
+  CHECK(r.app.open_settings());
+  CHECK(!find_setting(r, "Phone app"));
+  CHECK(find_setting(r, "Back to Hermes"));  // the items around it are still reachable
+  r.app.console("settings close");
+  CHECK_EQ(r.app.console("phone"), std::string("@error Bluetooth is not enabled on this board"));
+  CHECK_EQ(r.app.console("phone pair"), std::string("@error Bluetooth is not enabled on this board"));
+  CHECK(r.app.console("status").find("\"phone\"") == std::string::npos);
+}
+
+TEST("phone: the settings item opens pairing, shows the passkey and closes when paired") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK(r.app.open_settings());
+  CHECK(find_setting(r, "Phone app"));
+  CHECK(r.app.model().body.find("No phone paired") == 0);
+  r.app.console("talk");
+  r.app.console("release");
+  CHECK_EQ(phone.pair_calls, 1);
+  CHECK(r.app.phone_pairing_open());
+  CHECK(!r.app.settings_open());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  CHECK_EQ(r.app.model().headline, std::string("Pair a phone"));
+  CHECK(!r.app.open_settings());  // the pairing screen owns the display
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":0,\"connected\":false,\"pairing\":true}"));
+
+  r.app.on_phone_passkey(42);
+  CHECK_EQ(r.app.model().headline, std::string("Code 000042"));
+  // TALK doesn't record over the passkey.
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(!r.fake.mic_on);
+  r.app.on_button(hg::Button::Talk, false);
+
+  r.app.on_phone_paired(true);
+  r.app.on_phone_status(1, true);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 1);
+  CHECK_EQ(r.app.model().hint, std::string("Phone paired"));
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":1,\"connected\":true,\"pairing\":false}"));
+  Value status;
+  CHECK(hg::json::parse(r.app.console("status").substr(8), status));
+  CHECK_EQ(status["phone"]["paired"].as_int(), int64_t(1));
+  CHECK(r.app.open_settings());
+  CHECK(find_setting(r, "Phone app"));
+  CHECK(r.app.model().body.find("Phone connected.") == 0);
+}
+
+TEST("phone: the window closes on cancel and after two minutes; a late passkey is ignored") {
+  Rig r(Rig::touch_profile());
+  FakePhone phone;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("phone pair"), std::string("@ok phone pairing open"));
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 1);
+
+  CHECK(r.app.start_phone_pairing());
+  r.advance(hg::App::kPhonePairMs - 100);
+  CHECK(r.app.phone_pairing_open());
+  r.advance(200);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 2);
+  CHECK_EQ(r.app.model().hint, std::string("Phone pairing closed"));
+  r.app.on_phone_passkey(123456);  // outside the window: nothing to show it on
+  CHECK(r.app.screen() != hg::Screen::Setup);
+
+  CHECK(r.app.start_phone_pairing());
+  CHECK_EQ(r.app.console("phone pair close"), std::string("@ok phone pairing closed"));
+  CHECK(!r.app.phone_pairing_open());
+}
+
+TEST("phone: Wi-Fi setup, a question and failed pairing each end the window") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.app.on_wifi_setup = [] { return std::string("Temporary setup network"); };
+  r.bring_online(true);
+  CHECK(r.app.start_phone_pairing());
+  CHECK(r.app.start_wifi_setup());
+  CHECK(!r.app.phone_pairing_open());
+  CHECK(r.app.wifi_setup_open());
+  CHECK(r.app.start_phone_pairing());  // and the other way round
+  CHECK(!r.app.wifi_setup_open());
+
+  r.server(R"({"type":"prompt","id":"q1","title":"Allow?","text":"Run it?"})");
+  CHECK(!r.app.phone_pairing_open());
+  CHECK(!r.app.start_phone_pairing());  // not over a question
+  r.app.console("yes");
+
+  CHECK(r.app.start_phone_pairing());
+  r.app.on_phone_paired(false);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(r.app.model().hint, std::string("Phone pairing failed"));
+}
+
+TEST("phone: Bluetooth that won't start leaves no window; forget and factory-reset remove phones") {
+  Rig r;
+  FakePhone phone;
+  phone.can_pair = false;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("phone pair"), std::string("@error phone pairing unavailable"));
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(r.app.model().hint, std::string("Bluetooth unavailable"));
+
+  r.app.on_phone_status(2, true);
+  CHECK_EQ(r.app.console("phone forget"), std::string("@ok phone forget"));
+  CHECK_EQ(phone.forget_calls, 1);
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":0,\"connected\":false,\"pairing\":false}"));
+  r.app.console("factory-reset");
+  CHECK_EQ(phone.forget_calls, 2);
+  CHECK_EQ(r.app.console("phone bogus"), std::string("@error usage: phone [pair [close] | forget]"));
+}
+
+TEST("phone: the pairing screen stays lit through the screen timeout") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.fake.backlight = true;
+  r.bring_online(true);
+  r.app.console("set screen_timeout 10");
+  r.advance(12000);
+  CHECK_EQ(r.fake.brightness, 0);  // idle, the screen goes dark
+  CHECK(r.app.start_phone_pairing());
+  CHECK_EQ(r.fake.brightness, 100);
+  r.advance(30000);  // three timeouts, still inside the server's heartbeat
+  CHECK(r.app.phone_pairing_open());
+  CHECK_EQ(r.fake.brightness, 100);
+  // A passkey after the window has closed doesn't wake the screen.
+  r.app.close_phone_pairing();
+  r.advance(12000);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_phone_passkey(123456);
+  CHECK_EQ(r.fake.brightness, 0);
+}

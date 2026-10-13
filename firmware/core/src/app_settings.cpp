@@ -8,14 +8,17 @@
 
 namespace hg {
 
-bool App::settings_hold_live() const { return !prompt_showing() && !ota_busy() && !wifi_setup_open(); }
+bool App::settings_hold_live() const {
+  return !prompt_showing() && !ota_busy() && !wifi_setup_open() && !phone_pairing_;
+}
 
 bool App::settings_title_hit(int x, int y) const {
   return ui_ && settings_hold_live() && ui_->title_hit(x, y);
 }
 
 bool App::open_settings() {
-  if (prompt_showing() || ota_busy() || ota_ == Ota::Restarting || !wifi_setup_text_.empty()) return false;
+  if (prompt_showing() || ota_busy() || ota_ == Ota::Restarting || !wifi_setup_text_.empty() || phone_pairing_)
+    return false;
   wake_display();
   if (settings_open()) { close_settings(); return true; }
   if (mode_ == Mode::Listening) cancel_listening("local settings");
@@ -58,18 +61,23 @@ void App::settings_input(Button button, bool pressed) {
     stop_hardware_check();
     check_result_.clear();
     power_off_armed_ = false;
-    int item = static_cast<int>(menu_) + (button == Button::Up ? -1 : 1);
-    if (item < static_cast<int>(Menu::Volume)) item = static_cast<int>(Menu::Back);
-    if (item > static_cast<int>(Menu::Back)) item = static_cast<int>(Menu::Volume);
-    menu_ = static_cast<Menu>(item);
     const bool can_power_off = hal_.power && hal_.power->can_power_off();
-    if ((!hal_.power && menu_ == Menu::Power) ||
-        (!can_power_off && menu_ == Menu::PowerOff)) {
-      menu_ = menu_ == Menu::Power ? (button == Button::Up ? Menu::Info : Menu::IdleTimer)
-                                   : (button == Button::Up ? Menu::IdleTimer : Menu::WifiSetup);
-    }
-    if (!on_wifi_setup && menu_ == Menu::WifiSetup)
-      menu_ = button == Button::Up ? (can_power_off ? Menu::PowerOff : Menu::IdleTimer) : Menu::Back;
+    // Steps over the items this board can't offer.
+    const auto offered = [&](Menu item) {
+      switch (item) {
+        case Menu::Power: return hal_.power != nullptr;
+        case Menu::PowerOff: return can_power_off;
+        case Menu::WifiSetup: return static_cast<bool>(on_wifi_setup);
+        case Menu::Phone: return static_cast<bool>(on_phone_pair);
+        default: return true;
+      }
+    };
+    do {
+      int item = static_cast<int>(menu_) + (button == Button::Up ? -1 : 1);
+      if (item < static_cast<int>(Menu::Volume)) item = static_cast<int>(Menu::Back);
+      if (item > static_cast<int>(Menu::Back)) item = static_cast<int>(Menu::Volume);
+      menu_ = static_cast<Menu>(item);
+    } while (!offered(menu_));
     return;
   }
   if (button != Button::Talk || pressed) return;
@@ -133,6 +141,7 @@ void App::settings_input(Button button, bool pressed) {
       break;
     case Menu::Back: close_settings(); break;
     case Menu::WifiSetup: start_wifi_setup(); break;
+    case Menu::Phone: start_phone_pairing(); break;
     case Menu::Power:
       if (battery_readable()) {
         static const char* const kNext[] = {"percentage", "both", "off", "icon"};  // after Icon, Percentage, Both, Off
@@ -240,6 +249,12 @@ void App::settings_model() {
       m.detail = "Wi-Fi setup";
       m.body = "Start a temporary network to configure this device with your phone.";
       break;
+    case Menu::Phone:
+      m.detail = "Phone app";
+      m.body = phones_paired_ == 0 ? std::string("No phone paired.\nSelect to pair one over Bluetooth.")
+                                   : std::string(phone_connected_ ? "Phone connected.\n" : "Phone paired, not connected.\n") +
+                                         "Select to pair another.";
+      break;
     case Menu::Back:
       m.detail = "Back to Hermes";
       m.body = "Select to close settings.";
@@ -255,6 +270,7 @@ bool App::start_wifi_setup() {
   else if (mode_ != Mode::Idle) cancel_turn();
   stop_playback();
   close_settings();
+  close_phone_pairing();
   wake_display();
   talk_held_ = false;
   cancel_held_ = false;

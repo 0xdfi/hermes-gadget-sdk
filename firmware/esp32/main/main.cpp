@@ -36,6 +36,7 @@ hgp::EspUpdater g_updater;
 hgp::AxpPower g_power;
 hgp::LatchPower g_latch_power;
 hgp::CoreS3Board g_cores3;
+hgp::PhoneLink g_phone;
 hg::TouchGestures* g_gestures = nullptr;
 
 // touch_cancel: which inputs act as CANCEL on touch boards.
@@ -50,6 +51,12 @@ void apply_touch_cancel() {
   g_swipe_cancel = mode != "pwr";
   g_key_cancel = mode != "swipe";
   if (g_gestures) g_gestures->set_swipe_cancel(g_swipe_cancel);
+}
+
+// The name a phone sees: the `name` setting, as hg::App uses it.
+std::string device_name() {
+  auto v = g_storage.get("name");
+  return v && !v->empty() ? *v : std::string(CONFIG_HG_DEFAULT_NAME);
 }
 
 void init_nvs() {
@@ -144,6 +151,17 @@ void dispatch(hg::App& app, hgp::Event& ev) {
         const hg::Button button = encoder->direction > 0 ? hg::Button::Up : hg::Button::Down;
         app.on_button(button, true);
         app.on_button(button, false);
+      }
+      break;
+    case EventType::Phone:
+      if (ev.len == sizeof(hgp::PhoneSample)) {
+        const auto* phone = reinterpret_cast<const hgp::PhoneSample*>(ev.data);
+        switch (phone->kind) {
+          case hgp::PhoneSample::Kind::Passkey: app.on_phone_passkey(phone->passkey); break;
+          case hgp::PhoneSample::Kind::Paired: app.on_phone_paired(true); break;
+          case hgp::PhoneSample::Kind::Failed: app.on_phone_paired(false); break;
+          case hgp::PhoneSample::Kind::Status: app.on_phone_status(phone->paired, phone->connected); break;
+        }
       }
       break;
   }
@@ -272,7 +290,13 @@ extern "C" void app_main(void) {
     if (key == "wifi_ssid" || key == "wifi_pass") app.close_wifi_setup();
     if (key == "wifi_ssid" || key == "wifi_pass" || key == "wifi_nets") g_wifi.networks_changed();
     if (key == "touch_cancel") apply_touch_cancel();
+    if (key == "name" && hgp::board_config().bluetooth) g_phone.set_name(device_name());
   };
+  if (board.bluetooth && g_phone.begin(device_name())) {
+    app.on_phone_pair = [] { return g_phone.open_pairing(); };
+    app.on_phone_pair_close = [] { g_phone.close_pairing(); };
+    app.on_phone_forget = [] { g_phone.forget(); };
+  }
   app.on_wifi_setup = [] { return g_wifi.start_setup(); };
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
   app.on_wifi_setup_ap = [] { return g_wifi.setup_ap(); };

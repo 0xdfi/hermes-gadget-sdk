@@ -511,7 +511,7 @@ void App::h_reply(const json::Value& m) {
 }
 
 void App::h_audio_start(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   if (!hal_.speaker || mode_ == Mode::Listening) return;
@@ -608,7 +608,7 @@ void App::h_display(const json::Value& m) {
 }
 
 void App::h_image_start(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   if (!hal_.display || !ui_) return;
@@ -641,7 +641,7 @@ void App::h_image_end(const json::Value& m) {
 }
 
 void App::h_prompt(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   const std::string& id = m["id"].as_string();
@@ -736,6 +736,10 @@ void App::h_error(const json::Value& m) {
 void App::on_button(Button button, bool pressed) {
   if (!wifi_setup_text_.empty()) {
     if (button == Button::Cancel && !pressed) close_wifi_setup();
+    return;
+  }
+  if (phone_pairing_) {
+    if (button == Button::Cancel && !pressed) close_phone_pairing();
     return;
   }
   const auto bit = static_cast<uint8_t>(1u << static_cast<unsigned>(button));
@@ -937,7 +941,7 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
 }
 
 void App::submit_text(std::string_view text) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   std::string t = trim(text);
@@ -1152,7 +1156,7 @@ void App::h_ota_begin(const json::Value& m) {
     return;
   }
   ota_ = Ota::Receiving;
-  close_wifi_setup();
+  close_setup_screens();
   close_settings();
   ota_received_ = ota_acked_ = 0;
   ota_seq_ = 0;
@@ -1234,6 +1238,7 @@ void App::tick() {
   const uint32_t t = now();
   power_tick();
   settings_tick();
+  phone_tick();
 
   if (phase_ == Phase::Boot && static_cast<int32_t>(t - boot_until_) >= 0) {
     phase_ = network_up_ ? Phase::Connecting : Phase::NoNetwork;
@@ -1382,6 +1387,23 @@ void App::update_model() {
     m.qr = wifi_setup_qr_.ok() ? &wifi_setup_qr_ : nullptr;
     m.scroll = 0;
     m.hint = profile_.touch_screen ? "Swipe down to close" : profile_.cancel_label + " to close";
+    if (ui_) ui_->render(m);
+    return;
+  }
+  if (phone_pairing_) {
+    m.screen = Screen::Setup;
+    m.scroll = 0;
+    if (phone_passkey_.empty()) {
+      m.headline = "Pair a phone";
+      m.detail = "Bluetooth: " + name_;
+      m.body = "On your phone, open the Hermes app and choose " + name_ +
+               ". This device then shows a code to type on the phone.";
+    } else {
+      m.headline = "Code " + phone_passkey_;
+      m.detail = "Type this code on your phone";
+      m.body = "Only a phone in front of you should ask for it.";
+    }
+    m.hint = profile_.touch_screen ? "Swipe down to cancel" : profile_.cancel_label + " to cancel";
     if (ui_) ui_->render(m);
     return;
   }
@@ -1557,6 +1579,7 @@ json::Value App::status_value() const {
   if (hal_.power) s.set("power", power_value());
   if (!pairing_code_.empty()) s.set("pairing_code", pairing_code_);
   if (!prompt_id_.empty()) s.set("prompt", prompt_id_);
+  if (on_phone_pair) s.set("phone", phone_value());
   if (!fatal_.empty()) s.set("error", fatal_);
   if (ota_ != Ota::Idle) {
     json::Value u = json::Value::object();
@@ -1605,9 +1628,22 @@ std::string App::console(std::string_view raw) {
     for (const auto& k : profile_.extra_settings) keys += " " + k;
     return "@help commands: status | diag [log] | get <key> | set <key> <value> | say <text> | talk | release | "
            "cancel | new-session | settings [close] | wifi-setup [close] | wifi [list | add <ssid> [password] | join <ssid> | "
-           "forget <ssid>] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
+           "forget <ssid>] | phone [pair [close] | forget] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
   }
   if (cmd == "status") return "@status " + status_json();
+  if (cmd == "phone") {
+    if (!on_phone_pair) return "@error Bluetooth is not enabled on this board";
+    if (rest.empty()) return "@phone " + phone_value().dump();
+    if (rest == "pair") return start_phone_pairing() ? "@ok phone pairing open" : "@error phone pairing unavailable";
+    if (rest == "pair close") { close_phone_pairing(); return "@ok phone pairing closed"; }
+    if (rest == "forget") {
+      close_phone_pairing();
+      if (on_phone_forget) on_phone_forget();
+      on_phone_status(0, false);
+      return "@ok phone forget";
+    }
+    return "@error usage: phone [pair [close] | forget]";
+  }
   if (cmd == "wifi-setup") {
     if (rest == "close") { close_wifi_setup(); return "@ok Wi-Fi setup closed"; }
     return start_wifi_setup() ? "@ok " + wifi_setup_text_ : "@error Wi-Fi setup unavailable";
@@ -1711,6 +1747,7 @@ std::string App::console(std::string_view raw) {
       for (const char* k : kSettingKeys) hal_.storage->erase(k);
       for (const auto& k : profile_.extra_settings) hal_.storage->erase(k);
       hal_.storage->erase("wifi_nets");
+      if (on_phone_forget) on_phone_forget();
     }
     return "@ok " + cmd + " (restart the device to apply)";
   }

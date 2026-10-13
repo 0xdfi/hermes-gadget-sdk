@@ -114,6 +114,24 @@ class App {
   // show a QR code. The port sets this only where it has the values.
   std::function<WifiSetupAp()> on_wifi_setup_ap;
 
+  // A phone companion app over Bluetooth, on boards whose port sets the hooks
+  // below. Pairing opens for kPhonePairMs from the settings menu or `phone pair`;
+  // the phone types the passkey this screen shows. A paired phone sends console
+  // lines (App::console) and reads the replies.
+  static constexpr uint32_t kPhonePairMs = 120000;
+  bool start_phone_pairing();
+  void close_phone_pairing();
+  bool phone_pairing_open() const { return phone_pairing_; }
+  // From the port: the passkey to show, the pairing's result, and the number of
+  // paired phones and whether one is connected.
+  void on_phone_passkey(uint32_t passkey);
+  void on_phone_paired(bool ok);
+  void on_phone_status(int paired, bool connected);
+  // These run on the app task. on_phone_pair returns false when Bluetooth can't start.
+  std::function<bool()> on_phone_pair;
+  std::function<void()> on_phone_pair_close;
+  std::function<void()> on_phone_forget;  // removes every paired phone
+
   // Serial-console command (provisioning, bench automation). Returns the
   // response; machine-readable lines start with '@'.
   std::string console(std::string_view line);
@@ -243,7 +261,7 @@ class App {
   uint8_t volume_ = 70;
   uint8_t brightness_ = 100;
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Microphone, Speaker, Display, Inputs, Info,
-                              Power, IdleTimer, PowerOff, WifiSetup, Back };
+                              Power, IdleTimer, PowerOff, WifiSetup, Phone, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -251,6 +269,16 @@ class App {
   std::string wifi_setup_text_;
   // The setup network's scannable code, encoded once when the screen opens.
   qr::Code wifi_setup_qr_;
+  // phone pairing (on_phone_pair)
+  bool phone_pairing_ = false;
+  uint32_t phone_pair_until_ = 0;
+  std::string phone_passkey_;
+  int phones_paired_ = 0;
+  bool phone_connected_ = false;
+  void phone_tick();
+  json::Value phone_value() const;
+  // Closes the Wi-Fi setup and phone pairing screens, for what takes the screen over.
+  void close_setup_screens();
   bool talk_held_ = false;
   bool settings_chord_fired_ = false;
   uint32_t talk_down_at_ = 0;

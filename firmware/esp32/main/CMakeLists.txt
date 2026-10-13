@@ -10,6 +10,7 @@ idf_component_register(
         "board.cpp"
         "port_amoled.cpp"
         "port_audio.cpp"
+        "port_ble.cpp"
         "port_buttons.cpp"
         "port_codec.cpp"
         "port_cores3.cpp"
@@ -38,6 +39,7 @@ idf_component_register(
     # both components exist in 5.x as well, where this is a no-op.
     PRIV_REQUIRES
         app_update
+        bt
         driver
         esp_driver_i2s
         esp_driver_ledc

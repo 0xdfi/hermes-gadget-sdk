@@ -53,7 +53,16 @@ namespace hgp {
 // Events
 
 enum class EventType : uint8_t { NetUp, NetDown, WsOpen, WsText, WsBinary, WsClosed, Mic, Console, Touch, Key,
-                                 WifiStarted, WifiDisconnected, WifiProvision, WifiScanDone, Encoder };
+                                 WifiStarted, WifiDisconnected, WifiProvision, WifiScanDone, Encoder, Phone };
+
+// Payload of Phone events (posted by the Bluetooth host task).
+struct PhoneSample {
+  enum class Kind : uint8_t { Passkey, Paired, Failed, Status };
+  Kind kind;
+  uint32_t passkey;  // Passkey: the code to show
+  uint8_t paired;    // Status: phones paired
+  bool connected;    // Status: one is connected now
+};
 
 // Payloads of Touch, Key and Encoder events (posted by the input task).
 struct TouchSample {
@@ -551,6 +560,23 @@ namespace console {
 // Starts the serial console REPL; lines are executed by hg::App::console on the app task.
 void begin();
 }
+
+// A phone companion app over Bluetooth LE, on boards with BoardConfig::bluetooth
+// (port_ble.cpp; docs/protocol.md#phone-app-over-bluetooth). The phone writes a
+// console line and reads the reply as notifications. Only a phone paired with
+// the passkey this device shows gets in, and pairing is accepted only while
+// open_pairing() is in effect. Call from the app task; results come back as
+// Phone events.
+class PhoneLink {
+ public:
+  // Starts the Bluetooth stack. It advertises only while pairing is open or a
+  // phone is paired. False when the build has no Bluetooth or it can't start.
+  bool begin(const std::string& name);
+  bool open_pairing();
+  void close_pairing();
+  void forget();  // removes every paired phone and drops a connected one
+  void set_name(const std::string& name);
+};
 
 namespace diag {
 // What came up at boot, for the boot summary and the `diag` report.
