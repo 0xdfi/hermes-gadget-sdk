@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- Wi-Fi modem sleep is on only while the board runs on its battery. Plugged in, or on a board that cannot tell, the radio stays awake, so reply audio no longer arrives in bursts that overflow the speaker buffer and crackle. Reported and diagnosed by @burndown.
 - The I2S microphone driver (breadboard and custom-pin boards) keeps the samples of a read that times out part way. On ESP-IDF 6.0.1 nearly every read returned `ESP_ERR_TIMEOUT` with one DMA buffer filled, the driver dropped it, and a held TALK sent 0 bytes of audio, so Hermes never replied. Contributed by @burndown.
 - A dark screen stays dark while Wi-Fi or the connection to Hermes drops and reconnects; it used to light up and, without a screen timeout, stay on until someone turned it off. Contributed by Antonio Lourenco (@tozes).
 - The AMOLED-1.75C shows its battery percentage from a discharge curve measured on its 500 mAh cell, smoothed over a minute and never rising on battery, instead of the AXP2101 gauge, which read up to 14 points low on this cell, or the linear voltage estimate used when the gauge is invalid, which was off by up to 13 points. While charging it follows a charge curve measured on the same cell, never falling, and shows 100 once charging is done; `diag` reports the PMIC's charge current limit. Builds on the voltage fallback for invalid gauge readings. Contributed by Antonio Lourenco (@tozes).

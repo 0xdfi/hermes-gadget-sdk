@@ -502,7 +502,7 @@ class Wifi {
   void tick(hg::App& app, uint32_t now);
   // Retry at once instead of at the next backoff slot (the user is back).
   void retry_now();
-  // Whether the device runs on its battery: the retry backoff applies only then.
+  // Whether the device runs on its battery: the retry backoff and modem sleep apply only then.
   std::function<bool()> on_battery;
   std::string start_setup();
   void stop_setup();
@@ -524,6 +524,9 @@ class Wifi {
   esp_pm_lock_handle_t attempt_lock_ = nullptr;  // light sleep would stall an attempt
   bool attempt_held_ = false;
   void hold_while_attempting();
+  int power_save_ = -1;  // -1 not applied yet, else whether modem sleep is on
+  uint32_t power_save_checked_at_ = 0;
+  void apply_power_save(uint32_t now);
   hg::WifiCredentials candidate_{};
   httpd_handle_t http_ = nullptr;
   std::mutex setup_mutex_;

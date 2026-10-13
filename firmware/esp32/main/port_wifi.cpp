@@ -30,7 +30,6 @@ void Wifi::begin(NvsStorage& storage) {
   ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &Wifi::on_event, this));
   ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &Wifi::on_event, this));
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-  ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
 #if CONFIG_PM_ENABLE
   if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "hg-wifi-join", &attempt_lock_) != ESP_OK) attempt_lock_ = nullptr;
 #endif
@@ -135,6 +134,17 @@ void Wifi::tick(hg::App& app, uint32_t now) {
                 (close_at_ && static_cast<int32_t>(now - close_at_) >= 0))) app.close_wifi_setup();
   if (configured_ && retry_.due(now) && esp_wifi_connect() != ESP_OK) retry_.start_failed(now);
   hold_while_attempting();
+  apply_power_save(now);
+}
+
+void Wifi::apply_power_save(uint32_t now) {
+  // Modem sleep lets the access point hold downlink frames until the next DTIM wake-up, so
+  // reply audio arrives in bursts that overflow the speaker buffer. Keep it for battery only;
+  // a board without a battery reading counts as plugged in.
+  if (power_save_ >= 0 && now - power_save_checked_at_ < 5000) return;
+  power_save_checked_at_ = now;
+  const int want = on_battery && on_battery() ? 1 : 0;
+  if (want != power_save_ && esp_wifi_set_ps(want ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE) == ESP_OK) power_save_ = want;
 }
 
 void Wifi::on_event(void*, const char* base, int32_t id, void* data) {
