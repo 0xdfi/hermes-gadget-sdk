@@ -523,6 +523,10 @@ gadget> status
 | `new-session` | Start a fresh conversation (same as holding CANCEL for 2 s) |
 | `settings` / `settings close` | Open or close the local settings and hardware checks |
 | `wifi-setup` / `wifi-setup close` | Start or cancel phone setup; the start response includes temporary network credentials |
+| `wifi` / `wifi list` | The [saved Wi-Fi networks](#saved-wi-fi-networks) as `@wifi` JSON, without passwords |
+| `wifi add <ssid> [password]` | Save a network without joining it; leave out the password for an open network |
+| `wifi join <ssid>` | Move a saved network first and join it now |
+| `wifi forget <ssid>` | Remove a saved network |
 | `phone` / `phone pair` / `phone pair close` / `phone forget` | On boards with Bluetooth: phone app state, open or close pairing, or remove every paired phone ([protocol](protocol.md#phone-app-over-bluetooth)) |
 | `yes` / `no` | Answer the question on screen |
 | `reconnect` | Drop and re-open the Hermes connection |
@@ -533,12 +537,32 @@ The keys are `name`, `server`, `token`, `talk_mode` (`hold` or `tap`), `volume`,
 
 In the `diag` report, `i2c` lists the addresses that answered, such as `0x18`. A probe can time out while another task uses the bus, so the scan tries each address up to three times. An address that times out on every try appears as `timeout at 0x19`, and the scan continues. Four such addresses in a row end the scan with `bus stuck at` the first of them, such as `bus stuck at 0x08`. That usually means a device or a short holds SDA or SCL low.
 
+### Saved Wi-Fi networks
+
+The device keeps up to five Wi-Fi networks and joins whichever is in range, so it can move between home, an office and a phone hotspot without new setup:
+
+```
+gadget> wifi add "Home Wi-Fi" "correct horse"
+@ok wifi add
+gadget> wifi add Phone hotspot-pass
+@ok wifi add
+gadget> wifi
+@wifi {"networks":[{"ssid":"Home Wi-Fi","tested":true,"open":false},{"ssid":"Phone","tested":false,"open":false}],"max":5,"current":"Home Wi-Fi"}
+```
+
+- Put a name or password with spaces in double quotes. Inside quotes, `\"` is a quote and `\\` a backslash.
+- The list is in order: the network that last worked comes first and is tried first at startup.
+- `tested` turns true once the device has joined the network with its saved password. Saving a new password for a network clears it again. `wifi add` does not check the password, so a network saved out of range shows `false` until the device first joins it.
+- When the link drops, the device retries the same network once. If that fails too, it scans and joins the first network if the scan saw it, else the strongest saved network it saw. A network that failed twice is passed over while another saved one is in range. When the scan finds no saved network, for example because it is hidden, the device tries the next one in the list. With one saved network it never scans and retries as before.
+- `set wifi_ssid` and `set wifi_pass` work on the first network: setting a new name saves that network first and keeps the others. If five are saved, the last one is dropped. An empty `wifi_ssid` forgets the first network. [Phone setup](setup-board.md#set-up-wi-fi-with-your-phone) saves its network first the same way.
+- `factory-reset` forgets every network.
+
 Machine-readable lines start with `@`, so tools can drive a bench device. `hermes-gadget provision` is a thin wrapper over these commands.
 
 ## Power-on sequence
 
 1. **Boot:** about 1 s.
-2. **Wi-Fi:** credentials from NVS, else from menuconfig. Without credentials the device opens a temporary network for [phone setup](setup-board.md#set-up-wi-fi-with-your-phone).
+2. **Wi-Fi:** the first [saved network](#saved-wi-fi-networks), else the one from menuconfig. Without credentials the device opens a temporary network for [phone setup](setup-board.md#set-up-wi-fi-with-your-phone).
 3. **Connect:** the device opens the WebSocket to `server`, retrying 1 → 30 s with backoff.
 4. **Authenticate:** it enrolls its key on first contact and proves it with an HMAC afterwards.
 5. **Pair or ready:** an unpaired device shows a pairing code (approve with `hermes gadget pair`); a paired one goes to **Ready**.

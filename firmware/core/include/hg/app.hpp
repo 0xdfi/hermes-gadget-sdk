@@ -136,7 +136,10 @@ class App {
   // response; machine-readable lines start with '@'.
   std::string console(std::string_view line);
   // Invoked after a setting changes through the console (e.g. Wi-Fi keys).
+  // The `wifi` command reports a changed network list as "wifi_nets".
   std::function<void(std::string_view key)> on_setting_changed;
+  // The name of the Wi-Fi network the device is on, or empty; for `wifi list`.
+  std::function<std::string()> current_wifi;
   // Adds the port's facts to the console's `diag` report: memory, reset reason,
   // radio, which drivers came up.
   std::function<void(json::Value& report)> on_diag;
@@ -220,6 +223,7 @@ class App {
   void stop_playback();
   void cancel_turn();
   bool known_setting(std::string_view key) const;
+  std::string wifi_command(std::string_view args);
   void start_new_session();
   void scroll_body(int delta);
   // Long text pages itself, so boards without scroll buttons can read it all.

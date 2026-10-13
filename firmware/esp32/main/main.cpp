@@ -118,6 +118,7 @@ void dispatch(hg::App& app, hgp::Event& ev) {
       app.on_network(false, text ? text : "");
       break;
     case EventType::WifiStarted: g_wifi.reconfigure(); break;
+    case EventType::WifiScanDone: g_wifi.scan_done(); break;
     case EventType::WifiProvision:
       if (ev.len == sizeof(hg::WifiCredentials)) g_wifi.provision(*reinterpret_cast<const hg::WifiCredentials*>(ev.data));
       break;
@@ -286,7 +287,8 @@ extern "C" void app_main(void) {
   apply_touch_cancel();
   add_status_led(app, board.status_led);
   app.on_setting_changed = [](std::string_view key) {
-    if (key == "wifi_ssid" || key == "wifi_pass") { app.close_wifi_setup(); g_wifi.reconfigure(); }
+    if (key == "wifi_ssid" || key == "wifi_pass") app.close_wifi_setup();
+    if (key == "wifi_ssid" || key == "wifi_pass" || key == "wifi_nets") g_wifi.networks_changed();
     if (key == "touch_cancel") apply_touch_cancel();
     if (key == "name" && hgp::board_config().bluetooth) g_phone.set_name(device_name());
   };
@@ -298,6 +300,7 @@ extern "C" void app_main(void) {
   app.on_wifi_setup = [] { return g_wifi.start_setup(); };
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
   app.on_wifi_setup_ap = [] { return g_wifi.setup_ap(); };
+  app.current_wifi = [] { return g_wifi.current(); };
   app.on_diag = [](hg::json::Value& report) {
     hgp::diag::report(report);
     report.set("ota", g_updater.describe());

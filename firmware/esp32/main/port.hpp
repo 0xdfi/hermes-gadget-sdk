@@ -23,6 +23,7 @@
 #include "shared_reply.hpp"
 #include "speaker_pa.hpp"
 #include "tag_scanner.hpp"
+#include "wifi_pick.hpp"
 #include "wifi_retry.hpp"
 #include "ws_link.hpp"
 #include "driver/i2c_master.h"
@@ -44,6 +45,7 @@
 #include "hg/app.hpp"
 #include "hg/hal.hpp"
 #include "hg/setup.hpp"
+#include "hg/wifi_networks.hpp"
 
 namespace hgp {
 
@@ -51,7 +53,7 @@ namespace hgp {
 // Events
 
 enum class EventType : uint8_t { NetUp, NetDown, WsOpen, WsText, WsBinary, WsClosed, Mic, Console, Touch, Key,
-                                 WifiStarted, WifiDisconnected, WifiProvision, Encoder, Phone };
+                                 WifiStarted, WifiDisconnected, WifiProvision, WifiScanDone, Encoder, Phone };
 
 // Payload of Phone events (posted by the Bluetooth host task).
 struct PhoneSample {
@@ -505,7 +507,12 @@ class EspUpdater final : public hg::Updater {
 class Wifi {
  public:
   void begin(NvsStorage& storage);
-  void reconfigure();  // credentials changed through the console
+  void reconfigure();  // join the first saved network
+  // The saved networks changed through the console: rejoin unless the device is on the first one.
+  void networks_changed();
+  void scan_done();
+  // The network the device is on, or empty.
+  std::string current() const { return link_up_ ? ssid_ : std::string(); }
   void disconnected();
   void connected(hg::App& app);
   void tick(hg::App& app, uint32_t now);
@@ -522,10 +529,16 @@ class Wifi {
  private:
   static void on_event(void* arg, const char* base, int32_t id, void* data);
   static esp_err_t setup_http(httpd_req_t* request);
-  void join(const char* ssid, const char* password);
+  void join(const std::string& ssid, const std::string& password);
+  bool configure(const std::string& ssid, const std::string& password);
+  void attempt(uint32_t now);
   void setup_status(std::string status);
   NvsStorage* storage_ = nullptr;
   bool configured_ = false;
+  hg::WifiNetworks networks_;
+  hg::WifiPick pick_;
+  std::string ssid_, password_;  // what the station is configured for
+  bool link_up_ = false, scanning_ = false;
   bool auto_setup_ = false, auto_setup_tried_ = false;
   bool joining_ = false, wait_disconnect_ = false;
   uint32_t trial_at_ = 0, setup_until_ = 0, close_at_ = 0;

@@ -3,10 +3,12 @@
 #include "port.hpp"  // first: pulls in FreeRTOS.h ahead of task.h/queue.h
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "esp_console.h"
 #include "esp_log.h"
+#include "hg/console_args.hpp"
 #include "sdkconfig.h"
 
 namespace hgp::console {
@@ -15,10 +17,13 @@ namespace {
 const char* TAG = "hg.console";
 
 int run(int argc, char** argv) {
+  // ESP-IDF has already split the line and removed its quotes. `wifi` takes several
+  // values that may hold spaces, so its arguments are quoted again.
+  const bool quote = argc && std::strcmp(argv[0], "wifi") == 0;
   std::string line;
   for (int i = 0; i < argc; ++i) {
     if (i) line.push_back(' ');
-    line += argv[i];
+    line += quote && i ? hg::quote_arg(argv[i]) : std::string(argv[i]);
   }
   // The app task answers on its own time. The slot outlives this function
   // if that answer comes after the wait below gave up.
@@ -40,7 +45,7 @@ int run(int argc, char** argv) {
 void begin() {
   static const char* const kCommands[] = {"help",      "status", "diag",   "get",         "set",       "say",
                                           "talk",      "release", "cancel", "new-session", "reconnect", "forget-key",
-                                          "factory-reset", "settings", "wifi-setup", "phone"};
+                                          "factory-reset", "settings", "wifi-setup", "wifi", "phone"};
   for (const char* name : kCommands) {
     esp_console_cmd_t cmd = {};
     cmd.command = name;

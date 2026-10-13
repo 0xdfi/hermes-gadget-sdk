@@ -1,8 +1,10 @@
 // Station changes run on the app task. IDF callbacks only post link events.
 #include "port.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "esp_event.h"
 #include "esp_log.h"
@@ -48,22 +50,30 @@ void Wifi::retry_now() {
   retry_.retry_now(now_ms());
 }
 
-void Wifi::join(const char* ssid, const char* password) {
+bool Wifi::configure(const std::string& ssid, const std::string& password) {
+  wifi_config_t cfg = {};
+  std::memcpy(cfg.sta.ssid, ssid.data(), ssid.size());
+  std::memcpy(cfg.sta.password, password.data(), password.size());
+  cfg.sta.threshold.authmode = password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+  cfg.sta.pmf_cfg.capable = true;
+  if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_OK) return false;
+  ssid_ = ssid;
+  password_ = password;
+  return true;
+}
+
+void Wifi::join(const std::string& ssid, const std::string& password) {
   configured_ = false;
+  if (scanning_) esp_wifi_scan_stop();
+  scanning_ = false;
   retry_.connected();  // nothing pending until this join is under way
   hold_while_attempting();
   esp_wifi_disconnect();
-  const size_t ssid_size = std::strlen(ssid), pass_size = std::strlen(password);
-  if (!ssid_size || ssid_size > 32 || pass_size > 64) {
+  if (ssid.empty() || ssid.size() > 32 || password.size() > 64) {
     events::post(EventType::NetDown, "Wi-Fi not configured", 20);
     return;
   }
-  wifi_config_t cfg = {};
-  std::memcpy(cfg.sta.ssid, ssid, ssid_size);
-  std::memcpy(cfg.sta.password, password, pass_size);
-  cfg.sta.threshold.authmode = pass_size ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-  cfg.sta.pmf_cfg.capable = true;
-  if (esp_wifi_set_config(WIFI_IF_STA, &cfg) != ESP_OK) return;
+  if (!configure(ssid, password)) return;
   configured_ = true;
   events::post(EventType::NetDown, "Joining Wi-Fi", 13);
   retry_.started(now_ms());
@@ -74,27 +84,54 @@ void Wifi::join(const char* ssid, const char* password) {
 void Wifi::reconfigure() {
   joining_ = false;
   candidate_ = {};
-  const std::string ssid = storage_->get("wifi_ssid").value_or(CONFIG_HG_DEFAULT_WIFI_SSID);
-  const std::string pass = storage_->get("wifi_pass").value_or(CONFIG_HG_DEFAULT_WIFI_PASSWORD);
+  networks_ = hg::WifiNetworks::load(*storage_);
+  if (networks_.dirty()) networks_.save(*storage_);
+  pick_.reset(networks_.size());
+  // With nothing saved, the network built into the firmware (if any).
+  const std::string ssid = networks_.empty() ? CONFIG_HG_DEFAULT_WIFI_SSID : networks_.all()[0].ssid;
+  const std::string pass = networks_.empty() ? CONFIG_HG_DEFAULT_WIFI_PASSWORD : networks_.all()[0].password;
   auto_setup_ = ssid.empty() && !auto_setup_tried_;
-  join(ssid.c_str(), pass.c_str());
+  join(ssid, pass);
+}
+
+void Wifi::networks_changed() {
+  networks_ = hg::WifiNetworks::load(*storage_);
+  if (networks_.dirty()) networks_.save(*storage_);
+  // On the device's network, the device has moved it first (connected()).
+  const bool on_first = link_up_ && !networks_.empty() && networks_.all()[0].ssid == ssid_ &&
+                        networks_.all()[0].password == password_;
+  if (on_first) pick_.reset(networks_.size());
+  else reconfigure();
 }
 
 void Wifi::disconnected() {
   wait_disconnect_ = false;
-  if (configured_) retry_.lost(now_ms(), on_battery && on_battery());
+  link_up_ = false;
+  if (configured_) {
+    pick_.failed();
+    retry_.lost(now_ms(), on_battery && on_battery());
+  }
   hold_while_attempting();
 }
 
 void Wifi::connected(hg::App& app) {
   retry_.connected();
+  pick_.connected();
   hold_while_attempting();
+  link_up_ = true;
+  if (!joining_ && networks_.joined(ssid_)) {
+    networks_.save(*storage_);
+    pick_.reset(networks_.size());
+  }
   if (!joining_ || wait_disconnect_) return;
   wifi_ap_record_t ap = {};
   if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK ||
       std::strncmp(reinterpret_cast<const char*>(ap.ssid), candidate_.ssid, sizeof(ap.ssid)) != 0) return;
-  storage_->set("wifi_ssid", candidate_.ssid);
-  storage_->set("wifi_pass", candidate_.password);
+  // Set up from the phone page: saved first, alongside the others.
+  networks_ = hg::WifiNetworks::load(*storage_);
+  networks_.put_first(candidate_.ssid, candidate_.password, true);
+  networks_.save(*storage_);
+  pick_.reset(networks_.size());
   app.console(std::string("set server ") + candidate_.server);
   candidate_ = {};
   joining_ = false;
@@ -132,9 +169,47 @@ void Wifi::tick(hg::App& app, uint32_t now) {
   }
   if (http_ && (static_cast<int32_t>(now - setup_until_) >= 0 ||
                 (close_at_ && static_cast<int32_t>(now - close_at_) >= 0))) app.close_wifi_setup();
-  if (configured_ && retry_.due(now) && esp_wifi_connect() != ESP_OK) retry_.start_failed(now);
+  if (configured_ && retry_.due(now)) attempt(now);
   hold_while_attempting();
   apply_power_save(now);
+}
+
+void Wifi::attempt(uint32_t now) {
+  scanning_ = false;
+  // Not while a phone setup tries its network.
+  if (!joining_ && pick_.should_scan()) {
+    wifi_scan_config_t scan = {};
+    if (esp_wifi_scan_start(&scan, false) == ESP_OK) {
+      scanning_ = true;  // scan_done() makes the attempt
+      return;
+    }
+  }
+  if (esp_wifi_connect() != ESP_OK) retry_.start_failed(now);
+}
+
+void Wifi::scan_done() {
+  uint16_t found = 0;
+  esp_wifi_scan_get_ap_num(&found);
+  std::vector<wifi_ap_record_t> records(std::min<uint16_t>(found, 20));
+  uint16_t count = static_cast<uint16_t>(records.size());
+  if (count) esp_wifi_scan_get_ap_records(&count, records.data());  // frees the scan's list
+  else esp_wifi_clear_ap_list();
+  if (!scanning_ || !configured_ || joining_ || networks_.empty()) return;
+  scanning_ = false;
+  std::vector<std::string> saved;
+  for (const auto& w : networks_.all()) saved.push_back(w.ssid);
+  std::vector<hg::WifiPick::Seen> seen;
+  for (uint16_t i = 0; i < count; ++i) {
+    const char* name = reinterpret_cast<const char*>(records[i].ssid);
+    seen.push_back({std::string_view(name, strnlen(name, sizeof(records[i].ssid))), records[i].rssi});
+  }
+  const hg::WifiNetwork& next = networks_.all()[pick_.choose(saved, seen)];
+  ESP_LOGI("hg.wifi", "scan saw %u networks, trying %s", static_cast<unsigned>(found), next.ssid.c_str());
+  if ((next.ssid != ssid_ || next.password != password_) && !configure(next.ssid, next.password)) {
+    retry_.start_failed(now_ms());
+    return;
+  }
+  if (esp_wifi_connect() != ESP_OK) retry_.start_failed(now_ms());
 }
 
 void Wifi::apply_power_save(uint32_t now) {
@@ -150,6 +225,8 @@ void Wifi::apply_power_save(uint32_t now) {
 void Wifi::on_event(void*, const char* base, int32_t id, void* data) {
   if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
     events::post(EventType::WifiStarted);
+  } else if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) {
+    events::post(EventType::WifiScanDone);
   } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
     auto* info = static_cast<wifi_event_sta_disconnected_t*>(data);
     char detail[48];
