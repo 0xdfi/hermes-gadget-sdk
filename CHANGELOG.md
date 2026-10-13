@@ -11,6 +11,7 @@
 
 ### Firmware
 
+- An experimental Bluetooth LE link for a phone companion app. A paired phone sends the same commands as the USB console and gets the same replies, so an app can set up Wi-Fi, change settings and read the device's status. Pairing opens for two minutes from a new **Phone app** item in device settings or the `phone pair` command, and the phone types the six-digit code the screen shows. The link is off on every board: a board turns it on with a `BoardConfig` flag and NimBLE in its `sdkconfig.defaults` once it passes the Bluetooth checks in the hardware verification guide, so released images don't grow until then. Contributed by Antonio Lourenco (@tozes).
 - Wi-Fi modem sleep is on only while the board runs on its battery. Plugged in, or on a board that cannot tell, the radio stays awake, so reply audio no longer arrives in bursts that overflow the speaker buffer and crackle. Reported and diagnosed by @burndown.
 - The I2S microphone driver (breadboard and custom-pin boards) keeps the samples of a read that times out part way. On ESP-IDF 6.0.1 nearly every read returned `ESP_ERR_TIMEOUT` with one DMA buffer filled, the driver dropped it, and a held TALK sent 0 bytes of audio, so Hermes never replied. Contributed by @burndown.
 - A dark screen stays dark while Wi-Fi or the connection to Hermes drops and reconnects; it used to light up and, without a screen timeout, stay on until someone turned it off. Contributed by Antonio Lourenco (@tozes).

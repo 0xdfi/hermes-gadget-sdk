@@ -42,7 +42,7 @@ void App::power_tick() {
   if (hal_.display && hal_.display->info().has_backlight && (screen_timeout_ms_ || display_sleeping_)) {
     // The settings menu can sleep too; the wake input leaves it on the same item.
     const bool busy = mode_ != Mode::Idle || speaking() || talk_held_ || cancel_held_ || prompt_showing() ||
-                      !wifi_setup_text_.empty() || ota_busy() || ota_ == Ota::Restarting || overlay_ != Overlay::None;
+                      !wifi_setup_text_.empty() || phone_pairing_ || ota_busy() || ota_ == Ota::Restarting || overlay_ != Overlay::None;
     const bool settled = phase_ == Phase::NoNetwork || (phase_ == Phase::Online && paired_);
     const bool idle = !busy && settled;
     // Something for the user wakes the screen. A connection still settling keeps a

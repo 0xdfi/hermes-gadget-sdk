@@ -200,6 +200,10 @@ struct BoardConfig {
   // The battery's measured discharge and charge curves (drivers/battery_curve.hpp).
   hg::Curve battery_curve, battery_charge_curve;
   bool cores3 = false;
+  // A phone companion app over Bluetooth LE (port_ble.cpp). Experimental: needs
+  // the Bluetooth lines in the board's sdkconfig.defaults and stays off until the
+  // board passes the checks in docs/hardware-validation.md#bluetooth.
+  bool bluetooth = false;
   LatchPowerConfig latch_power;
   int status_led = -1;
   const char* talk_label = "TALK";
