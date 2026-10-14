@@ -34,6 +34,13 @@ i2s_std_config_t std_config(uint32_t rate, i2s_data_bit_width_t bits, int bclk, 
 
 }  // namespace
 
+uint32_t speaker_now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+
+void log_underruns(const char* tag, const hg::SpeakerUnderruns::Totals& t) {
+  ESP_LOGI(tag, "playback ended: %u underruns, %u ms in total, longest %u ms", static_cast<unsigned>(t.count),
+           static_cast<unsigned>(t.total_ms), static_cast<unsigned>(t.longest_ms));
+}
+
 // --------------------------------------------------------------------------
 // Microphone
 
@@ -149,8 +156,10 @@ void I2sSpeaker::task(void* arg) {
   int16_t chunk[kSpeakerChunk];
   bool enabled = false;
   uint32_t applied_rate = self->rate_.load();
+  hg::SpeakerUnderruns gaps;
   for (;;) {
     if (self->flush_.exchange(false)) {
+      gaps.finish();  // an aborted stream isn't reported
       xStreamBufferReset(self->buffer_);
       if (enabled) {
         i2s_channel_disable(self->tx_);
@@ -159,15 +168,18 @@ void I2sSpeaker::task(void* arg) {
     }
     size_t got = xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
+      if (enabled && self->open_) gaps.ran_dry(speaker_now_ms());
       if (self->draining_ && !self->open_) {
         self->draining_ = false;  // everything queued has been written out
         if (enabled) {
+          log_underruns(TAG, gaps.finish());
           i2s_channel_disable(self->tx_);
           enabled = false;
         }
       }
       continue;
     }
+    gaps.resumed(speaker_now_ms());
     if (!enabled) {
       uint32_t want = self->rate_.load();
       if (want != applied_rate) {
