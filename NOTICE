@@ -56,6 +56,14 @@ https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888
 released by Waveshare under the Apache License 2.0. A copy of that license is in
 LICENSES/Apache-2.0.txt.
 
+The CO5300 start-up commands for the 410x502 watch module (kInit410 in
+firmware/esp32/main/port_amoled.cpp) and the ESP32-S3-Touch-AMOLED-2.06 pin map
+in firmware/esp32/main/board.cpp follow Waveshare's board support package for
+the ESP32-S3-Touch-AMOLED-2.06, version 2.0.0,
+https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9daffb7168b3c093a330da700988a22092294eef/bsp/esp32_s3_touch_amoled_2_06,
+released by Waveshare under the Apache License 2.0. A copy of that license is in
+LICENSES/Apache-2.0.txt.
+
 The AIPI Lite pin map, panel settings and power wiring in
 firmware/esp32/main/board.cpp follow xiaozhi-esp32's xorigin/aipi-lite board,
 https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite,

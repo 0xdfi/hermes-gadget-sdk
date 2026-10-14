@@ -338,6 +338,49 @@ A smoke test on a V2 board confirmed the boot, the display and the I2C devices, 
 
 The CO5300 start-up table comes from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9f4030c6e5cb888ad4cc268bfa7584c93ad53e30/bsp/esp32_s3_touch_amoled_1_8) at commit `9f4030c`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
+## ESP32-S3-Touch-AMOLED-2.06
+
+Board option `esp32s3-touch-amoled-206`, for Waveshare's 2.06" AMOLED touch watch: an ESP32-S3R8 (8 MB octal PSRAM) with 32 MB flash, a 410×502 AMOLED with rounded corners, two microphones, an onboard speaker, a battery, an IMU, an RTC and a TF slot. Nothing needs wiring.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | CO5300, QSPI | CS 12, SCLK 11, D0–D3 4/5/6/7, reset 8; column offset 22; tearing-effect output on 13 (unused) |
+| Touch | FT3168 | I2C 0x38, read with the FT5x06 driver; reset 9; INT 38 unused (polled) |
+| Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 16, BCLK 41, WS 45, DOUT 40; NS4150B amplifier enable 46 |
+| Microphones | ES7210 | I2C 0x40; two microphones on MIC1/MIC2 (MIC3 is the speaker loopback, unused); I2S DIN 42 |
+| Power | AXP2101 | I2C 0x34; battery/USB readings, PWR short press and local power-off; charging and rails keep their defaults |
+| I2C bus | | SDA 15, SCL 14, 400 kHz |
+| BOOT key | | GPIO 0 |
+| Not used | QMI8658 IMU (I2C 0x6B), PCF85063 RTC (0x51), TF card | |
+
+The audio codecs and amplifier run from the always-on 3.3 V rail, so no AXP2101 rail is switched for audio. The UI uses rows 8–493 of the panel. The glass corners are rounded with a radius of about 100 px (measured with a test grid), so the status row also keeps its text 64 px (`corner_inset`) in from the sides.
+
+The microphones are quiet: speech averaged about 170 RMS at the default 24 dB gain, under tap mode's usual 500 floor. This profile sets 30 dB and a floor of 200 (`codec.mic_gain_db`, `codec.vad_min_rms`), and tap mode's noise estimate still raises the threshold in a loud room.
+
+Two more hardware facts for anyone building on this board. The QMI8658 is mounted a quarter turn from the screen: its +x axis points to the screen's bottom, +y to its left and +z out of the back (checked by tilting the watch). The schematic's vibration motor is not fitted: there is a driver (an NPN from GPIO 18) and two pads, P1 (the AXP2101's ALDO3) and P2, for a motor.
+
+**Controls.** Hold the screen to talk, tap to answer "yes", swipe down to cancel; hold BOOT to talk as well. A short press of PWR is read from the AXP2101; holding PWR for 6 s turns the watch off in hardware.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e esp32s3-touch-amoled-206 -t upload -t monitor
+```
+
+The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the serial console. If the port does not appear, hold BOOT while plugging in USB to enter download mode.
+
+### First flash: what to check
+
+1. **Boot log:** `CO5300 410x486 ready`, `codecs: speaker ready, microphones ready` and `touch ready, key off, encoder off`. In the `diag` report, `i2c` should include `0x18` (ES8311), `0x34` (AXP2101), `0x38` (FT3168), `0x40` (ES7210), `0x51` (PCF85063) and `0x6b` (QMI8658).
+2. **Screen:** the mascot is upright and not mirrored; text is white on dark slate bars, and the link dot is green once online. A stripe at one edge means the column offset is off. Text clipped by a rounded corner means `corner_inset` needs raising.
+3. **Touch:** holding the screen shows the listening waves, and a swipe *down* cancels. If the coordinates are mirrored, flip `touch.mirror_x`/`mirror_y` in `board.cpp`. If they are 8 rows off, adjust `touch.offset_y`.
+4. **Microphones:** say something. The waves move with your voice and the transcript is right; in tap mode, a sentence spoken at arm's length starts and ends the recording.
+5. **Speaker:** replies are clear and loud enough (`set volume 80`), with no hiss between replies.
+6. **Power:** a short PWR press toggles the screen, and the battery reading appears with a cell attached.
+
+The CO5300 start-up table and the pin map come from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/9daffb7168b3c093a330da700988a22092294eef/bsp/esp32_s3_touch_amoled_2_06) 2.0.0 at commit `9daffb7`, checked against the [schematic](https://files.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.06/ESP32-S3-Touch-AMOLED-2.06.pdf); see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Xorigin AIPI Lite
 
 Board option `aipi-lite`, for Xorigin's AIPI Lite: an ESP32-S3 with 16 MB flash and 8 MB octal PSRAM, a 128×128 ST7789 panel, one ES8311 codec for both the speaker and the microphone, BOOT and power keys, and a battery. This port is experimental.

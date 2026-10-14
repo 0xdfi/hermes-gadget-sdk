@@ -41,7 +41,8 @@ bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, c
     esp_lcd_touch_config_t cfg = {};
     cfg.x_max = touch.width;
     cfg.y_max = touch.height;
-    cfg.rst_gpio_num = GPIO_NUM_NC;  // The board's expander already released reset.
+    // CoreS3's expander has already released reset; the 2.06" watch wires it to a GPIO.
+    cfg.rst_gpio_num = touch.rst >= 0 ? static_cast<gpio_num_t>(touch.rst) : GPIO_NUM_NC;
     cfg.int_gpio_num = GPIO_NUM_NC;
     if (esp_lcd_new_panel_io_i2c(bus, &io_cfg, &io) == ESP_OK &&
         esp_lcd_touch_new_i2c_ft5x06(io, &cfg, &managed_touch_) != ESP_OK) esp_lcd_panel_io_del(io);

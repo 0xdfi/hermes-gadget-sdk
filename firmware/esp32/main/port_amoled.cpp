@@ -74,6 +74,24 @@ constexpr InitCommand kInit368[] = {
     {0x29, {}, 0, 0},    // display on
 };
 
+// Panel bring-up for the 410x502 2.06" watch module, following Waveshare's
+// esp32_s3_touch_amoled_2_06 BSP 2.0.0 (commit 9daffb7): the same short table as
+// the 1.8" module with the watch's window (column offset 22, applied per flush
+// through gap_x). Every flush rewrites the window.
+constexpr InitCommand kInit410[] = {
+    {0xFE, {0x00}, 1, 0},
+    {0xC4, {0x80}, 1, 0},
+    {0x3A, {0x55}, 1, 0},  // 16 bits per pixel
+    {0x35, {0x00}, 1, 0},  // tearing effect line on
+    {0x53, {0x20}, 1, 0},  // brightness control on
+    {0x51, {0xFF}, 1, 0},  // brightness
+    {0x63, {0xFF}, 1, 0},
+    {0x2A, {0x00, 0x16, 0x01, 0xAF}, 4, 0},
+    {0x2B, {0x00, 0x00, 0x01, 0xF5}, 4, 0},
+    {0x11, {}, 0, 120},  // sleep out
+    {0x29, {}, 0, 0},    // display on
+};
+
 }  // namespace
 
 bool AmoledDisplay::on_trans_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* ctx) {
@@ -141,6 +159,9 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
   if (cfg.panel == AmoledPanel::Co5300_368) {
     init = kInit368;
     init_len = sizeof(kInit368) / sizeof(kInit368[0]);
+  } else if (cfg.panel == AmoledPanel::Co5300_410) {
+    init = kInit410;
+    init_len = sizeof(kInit410) / sizeof(kInit410[0]);
   }
   for (size_t i = 0; i < init_len; ++i) {
     command(init[i].cmd, init[i].data, init[i].len);

@@ -849,6 +849,7 @@ void App::start_listening(bool hands_free) {
   level_ = 0;
   Vad::Config vc;
   vc.sample_rate = profile_.mic_rate;
+  vc.min_threshold = profile_.vad_min_rms;  // the board's microphone level
   vad_.reset(vc);
   json::Value start = proto::message("audio.start");
   start.set("id", request_id_)
