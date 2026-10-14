@@ -13,7 +13,7 @@ Firmware builds and simulator tests check software behavior. A physical verifica
 | ESP32-S3-DevKitC-1 N8R8 breadboard | Wired ST7789, TALK and CANCEL buttons | Wired I2S microphone; optional MAX98357A speaker | External power | CI build; physical report not recorded |
 | Waveshare ESP32-S3-LCD-1.54, SKUs 33866/33867 | ST7789 240×240; BOOT and PLUS | ES7210 microphones and ES8311 speaker | Calibrated voltage, charging signal, battery latch and screen timeout; USB bypasses shutdown | CI build; physical report not recorded |
 | Waveshare ESP32-S3-Touch-AMOLED-1.75 | CO5300 466×466; CST9217 touch, BOOT and PWR | ES7210 microphones and ES8311 speaker output | AXP2101 readings and local power-off; optional screen timeout | CI build; physical report not recorded |
-| Waveshare ESP32-S3-Touch-AMOLED-1.75C, SKUs 33691/33692 | CO5300 466×466; CST9217 touch and BOOT | ES7210 microphones and ES8311 onboard speaker | AXP2101 readings, audio supply and local power-off; screen timeout | Experimental; [SKU 33691 report](#waveshare-amoled-175c-physical-report) covers the checklist on a working branch, not a `main` build; PCB revision not marked |
+| Waveshare ESP32-S3-Touch-AMOLED-1.75C, SKUs 33691/33692 | CO5300 466×466; CST9217 touch, BOOT, and PWR short press for screen sleep | ES7210 microphones and ES8311 onboard speaker | AXP2101 readings, audio supply and local power-off; screen timeout; amplifier off between sounds; idle CPU at 80 MHz; battery percent from measured curves; light sleep while dozing on battery | Experimental; [SKU 33691 report](#waveshare-amoled-175c-physical-report) covers the checklist on a working branch, not a `main` build; PCB revision not marked |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8, V2 only | CO5300 368×448; CST820 touch and BOOT | ES8311 analog microphone and speaker output | AXP2101 readings and local power-off; display/touch reset through a TCA9554 expander | Experimental; physical smoke check only (boot, display, I2C devices present, codecs and the touch, speaker and microphone tasks start); touch, microphone capture, speaker playback and battery not verified; full checklist not completed |
 | Waveshare ESP32-S3-Touch-LCD-1.85C V2 / PCB Rev2.0 only | ST77916 360×360 round QSPI LCD; CST816 touch and BOOT | ES8311 + ES7210 dual analog mic slots, NS4150B PA; mono transport; no software AEC | USB/battery switch; screen timeout; no battery telemetry or software shutdown | Experimental; [partial Rev2.0 report](#waveshare-185c-v2-partial-physical-report); full checklist not completed |
 | Xorigin AIPI Lite | ST7789 128×128; BOOT and power keys | One ES8311 for speaker and microphone | GPIO 10 power latch and power-off; battery level and charging not reported | Experimental; contributor smoke test on an earlier revision (boot, display and audio start, online pairing); microphone capture, colors, USB console and battery not verified on this revision |
@@ -21,6 +21,7 @@ Firmware builds and simulator tests check software behavior. A physical verifica
 | M5Stack CoreS3 (K128) | ILI9342C/E 320×240, detected through touch firmware; FT6336 gestures | ES7210 microphones and AW88298 speaker | AXP2101 readings, backlight and local power-off; AW9523 reset/boost control | Experimental; physical report not recorded for either panel revision |
 | LilyGO T-Display-S3 (SKU/Version H587; PCB revision 1.2) | ST7789 320×170 over 8-bit i80; BOOT and Button2 | No onboard audio | Battery divider; no fuel gauge; GPIO15 powers the panel rail, not device shutdown | Experimental; physical smoke check only (screen ready/replies, Wi-Fi, online pairing); full physical checklist not completed; hardware-verified status not claimed |
 | Elecrow CrowPanel 2.1-inch HMI (ESP32-S3R8, 16 MB flash) | ST7701 480×480 RGB round panel; CST-family touch, rotary encoder, encoder button on PCF8574 | No onboard audio | USB power; screen timeout | Experimental; physical smoke check only (panel bring-up, brightness scale, Wi-Fi, online pairing, serial console); touch coordinates and encoder direction not physically verified |
+| Elecrow CrowPanel 5.0-inch HMI (DIS07050H, ESP32-S3R8, 4 MB flash) | ILI6122/ILI5960 800×480 RGB panel; GT911 touch on I2C, INT not wired (polled) | No onboard audio | USB power; screen timeout | Experimental; boot smoke check only (panel initialization log, GT911 ID, Wi-Fi, online pairing); rendering, colours, brightness and touch coordinates not physically verified |
 
 The LCD-1.54 `-EN` SKU uses the same hardware. The separate Touch-LCD-1.54 model adds a CST816 touchscreen that this port does not drive. AMOLED-1.75C has its own firmware profile; its reset and audio clock pins differ from the 1.75 model. See [hardware and wiring](hardware.md) for connections and exact model names.
 
@@ -98,6 +99,61 @@ Two-hour session:
 Failed or untested steps:
 Sanitized logs and diagnostics:
 ```
+
+## Bluetooth
+
+The [phone app link](protocol.md#phone-app-over-bluetooth) is off on every board. Turning it on adds NimBLE, ESP-IDF's Bluetooth LE stack, to the image: about 204 KB of flash on the AMOLED-1.75C (measured: 1,335,152 → 1,543,968 bytes) plus its RAM once it runs. Bluetooth also shares the antenna with Wi-Fi. So each board turns it on only after someone has checked it on that board.
+
+To try it on a board, build it yourself with two changes, then flash over USB:
+
+1. In `firmware/esp32/main/board.cpp`, set `b.bluetooth = true;` in the board's section.
+2. Append these lines to `firmware/esp32/boards/<board>/sdkconfig.defaults`:
+
+   ```text
+   # Bluetooth phone link (docs/hardware-validation.md#bluetooth).
+   CONFIG_BT_ENABLED=y
+   # CONFIG_BT_BLUEDROID_ENABLED is not set
+   CONFIG_BT_NIMBLE_ENABLED=y
+   # CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set
+   # CONFIG_BT_NIMBLE_ROLE_OBSERVER is not set
+   CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+   CONFIG_BT_NIMBLE_NVS_PERSIST=y
+   ```
+
+Delete the generated `firmware/esp32/sdkconfig.<board>` before building, or the configuration check stops the build. A board with the flag but without these lines logs `this board enables Bluetooth, but the build has no NimBLE` and runs without the link.
+
+With no app yet, use a generic Bluetooth LE app such as nRF Connect or LightBlue. Check:
+
+1. **Boot:** the log shows `hg.phone: Bluetooth ready`. Record `diag` free memory with Bluetooth on and off.
+2. **Silence:** with no phone paired, the phone's scanner doesn't see the device.
+3. **Pairing:** **Phone app** in device settings shows the pairing screen and the device appears in the scanner. Writing to the command characteristic makes the phone ask for a code; the screen shows six digits; typing them pairs. A wrong code fails, and so does pairing after the two minutes are up or after CANCEL.
+4. **Commands:** subscribe to the reply characteristic, write `status`, `get name`, `set volume 40` and `diag log`. Each reply arrives complete and ends with a `0x00` byte, including the long `diag log`.
+5. **Wi-Fi setup:** `set wifi_ssid` and `set wifi_pass` from the phone join a network.
+6. **Reconnect:** after a restart, the paired phone reconnects and sends commands without pairing again.
+7. **Refusal:** a second phone that hasn't paired can't write commands, and can't pair while pairing is closed.
+8. **Forget:** `phone forget` drops the connected phone and the device stops advertising; `factory-reset` removes paired phones too.
+9. **Coexistence:** with a phone connected, a voice turn and its spoken reply play without new dropouts, and an OTA update still installs.
+10. **Long run:** a phone connected for an hour of normal use, with no resets and stable free memory.
+
+Use this report format:
+
+```text
+Model / PCB revision:
+Firmware commit (with the two changes above):
+Phone model / OS / app used:
+Image size and free memory, Bluetooth on and off:
+Silence, pairing, wrong code, closed window:
+Commands and long replies:
+Wi-Fi setup over Bluetooth:
+Reconnect after restart:
+Refusal of an unpaired phone:
+Forget / factory reset:
+Voice and OTA with a phone connected:
+One-hour run:
+Failed or untested steps:
+```
+
+Attach the report to a pull request that makes the two changes for that board and adds Bluetooth to its row in the table above. The board's next release then ships with the link. A report for one board doesn't turn it on for another.
 
 ## Support labels
 

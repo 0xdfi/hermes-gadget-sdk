@@ -19,6 +19,7 @@ namespace {
 
 const char* TAG = "hg.touch";
 constexpr uint32_t kPollMs = 20;
+constexpr uint32_t kDozePollMs = 50;
 constexpr uint8_t kTca9554Input = 0x00;
 constexpr uint8_t kCstAck = 0xAB;
 
@@ -161,7 +162,7 @@ bool TouchInput::begin_box_touch(i2c_master_bus_handle_t bus) {
   cfg.x_max = touch_.width;
   cfg.y_max = touch_.height;
   cfg.rst_gpio_num = GPIO_NUM_NC;  // Display initialization already reset the shared line.
-  cfg.int_gpio_num = GPIO_NUM_3;
+  cfg.int_gpio_num = touch_.int_gpio >= 0 ? static_cast<gpio_num_t>(touch_.int_gpio) : GPIO_NUM_NC;
   cfg.flags.mirror_x = tt21100;
   const esp_err_t err = tt21100 ? esp_lcd_touch_new_i2c_tt21100(io, &cfg, &managed_touch_)
                               : esp_lcd_touch_new_i2c_gt911(io, &cfg, &managed_touch_);
@@ -232,7 +233,9 @@ void TouchInput::task(void* arg) {
       EncoderSample e{static_cast<int8_t>(direction)};
       events::post(EventType::Encoder, &e, sizeof(e));
     }
-    vTaskDelay(pdMS_TO_TICKS(kPollMs));
+    // Dozing (screen off, on battery), poll less often so the chip can light-sleep
+    // between polls; a touch still wakes the screen within about 50 ms.
+    vTaskDelay(pdMS_TO_TICKS(EspSystem::dozing_now() ? kDozePollMs : kPollMs));
   }
 }
 

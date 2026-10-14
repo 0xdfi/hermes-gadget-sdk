@@ -77,7 +77,10 @@ void I2sMic::task(void* arg) {
       continue;
     }
     size_t got = 0;
-    if (i2s_channel_read(self->rx_, raw, sizeof(raw), &got, pdMS_TO_TICKS(100)) != ESP_OK || got == 0) continue;
+    // A read that spans DMA buffers can return ESP_ERR_TIMEOUT with part of the data in `got`
+    // (seen on ESP-IDF 6.0.1): keep what arrived instead of dropping the whole read.
+    i2s_channel_read(self->rx_, raw, sizeof(raw), &got, pdMS_TO_TICKS(100));
+    if (got == 0) continue;
     size_t n = got / sizeof(int32_t);
     for (size_t i = 0; i < n; ++i) {
       // 24-bit sample left-aligned in 32 bits; keep the top 16 with a little gain.

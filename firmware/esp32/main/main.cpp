@@ -7,6 +7,7 @@
 #include "driver/gpio.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_psram.h"
 #include "hg/touch.hpp"
 #include "nvs_flash.h"
@@ -35,6 +36,7 @@ hgp::EspUpdater g_updater;
 hgp::AxpPower g_power;
 hgp::LatchPower g_latch_power;
 hgp::CoreS3Board g_cores3;
+hgp::PhoneLink g_phone;
 hg::TouchGestures* g_gestures = nullptr;
 
 // touch_cancel: which inputs act as CANCEL on touch boards.
@@ -49,6 +51,12 @@ void apply_touch_cancel() {
   g_swipe_cancel = mode != "pwr";
   g_key_cancel = mode != "swipe";
   if (g_gestures) g_gestures->set_swipe_cancel(g_swipe_cancel);
+}
+
+// The name a phone sees: the `name` setting, as hg::App uses it.
+std::string device_name() {
+  auto v = g_storage.get("name");
+  return v && !v->empty() ? *v : std::string(CONFIG_HG_DEFAULT_NAME);
 }
 
 void init_nvs() {
@@ -89,6 +97,15 @@ void add_status_led(hg::App& app, int gpio) {
   app.add_action(std::move(led));
 }
 
+// Light sleep disables every GPIO it doesn't know about; these must keep their
+// level so the panel, touch controller, amplifier and buses survive a doze.
+void keep_pins_through_sleep(const hgp::BoardConfig& b) {
+  const int pins[] = {b.amoled.cs, b.amoled.sclk, b.amoled.d0, b.amoled.d1, b.amoled.d2, b.amoled.d3,
+                      b.amoled.rst, b.touch.rst, b.codec.pa, b.i2c.sda, b.i2c.scl};
+  for (int pin : pins)
+    if (pin >= 0) gpio_sleep_sel_dis(static_cast<gpio_num_t>(pin));
+}
+
 void dispatch(hg::App& app, hgp::Event& ev) {
   using hgp::EventType;
   const char* text = reinterpret_cast<const char*>(ev.data);
@@ -110,6 +127,7 @@ void dispatch(hg::App& app, hgp::Event& ev) {
       app.on_network(false, text ? text : "");
       break;
     case EventType::WifiStarted: g_wifi.reconfigure(); break;
+    case EventType::WifiScanDone: g_wifi.scan_done(); break;
     case EventType::WifiProvision:
       if (ev.len == sizeof(hg::WifiCredentials)) g_wifi.provision(*reinterpret_cast<const hg::WifiCredentials*>(ev.data));
       break;
@@ -144,6 +162,17 @@ void dispatch(hg::App& app, hgp::Event& ev) {
         app.on_button(button, false);
       }
       break;
+    case EventType::Phone:
+      if (ev.len == sizeof(hgp::PhoneSample)) {
+        const auto* phone = reinterpret_cast<const hgp::PhoneSample*>(ev.data);
+        switch (phone->kind) {
+          case hgp::PhoneSample::Kind::Passkey: app.on_phone_passkey(phone->passkey); break;
+          case hgp::PhoneSample::Kind::Paired: app.on_phone_paired(true); break;
+          case hgp::PhoneSample::Kind::Failed: app.on_phone_paired(false); break;
+          case hgp::PhoneSample::Kind::Status: app.on_phone_status(phone->paired, phone->connected); break;
+        }
+      }
+      break;
   }
 }
 
@@ -169,6 +198,17 @@ extern "C" void app_main(void) {
                   "not start without it (see the board's requirements in docs/hardware.md)",
              kPsramMode);
   }
+#endif
+#if CONFIG_PM_ENABLE
+  // Boards that enable power management let the CPU drop to 80 MHz when idle;
+  // drivers hold it up while they work. Light sleep only on boards that ask for
+  // it, and then only while dozing: the app holds the chip awake otherwise
+  // (EspSystem::enable_doze), so the display, touch, audio and USB keep working.
+  esp_pm_config_t pm = {};
+  pm.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+  pm.min_freq_mhz = 80;
+  pm.light_sleep_enable = board.light_sleep && g_system.enable_doze();
+  if (esp_pm_configure(&pm) != ESP_OK) ESP_LOGW(TAG, "power management unavailable; the CPU stays at full speed");
 #endif
   g_updater.expect_board(board.name);
   g_updater.start();  // a new firmware on probation starts its clock now
@@ -200,12 +240,20 @@ extern "C" void app_main(void) {
   }
   if (board.mic.enabled && g_mic.begin(board.mic)) hal.mic = &g_mic;
   if (board.speaker.enabled && g_speaker.begin(board.speaker)) hal.speaker = &g_speaker;
-  if (board.axp2101 && g_power.begin(i2c_bus)) hal.power = &g_power;
+  if (board.axp2101 && g_power.begin(i2c_bus)) {
+    hal.power = &g_power;
+    if (board.axp_power_key) g_power.use_power_key();
+    g_power.use_curves(board.battery_curve, board.battery_charge_curve);
+    // Wi-Fi retries back off only on battery; unknown counts as plugged in.
+    g_wifi.on_battery = [] { return g_power.external_power() == std::optional<bool>(false); };
+  }
   const bool audio_power = peripherals_ready && (!board.axp_audio_supply || g_power.enable_audio_supply());
   if (!audio_power) ESP_LOGE(TAG, "audio supply unavailable");
   if (board.codec.enabled && audio_power && g_codec.begin(board.codec, i2c_bus)) {
-    if (g_codec_mic.begin(g_codec.in(), board.codec.rmnm_mics)) hal.mic = &g_codec_mic;
+    if (g_codec_mic.begin(g_codec.in(), board.codec.rmnm_mics, g_codec.mic_link())) hal.mic = &g_codec_mic;
     if (g_codec_speaker.begin(g_codec.out(), board.codec.stereo32, board.codec.speaker_pa ? board.codec.pa : -1)) hal.speaker = &g_codec_speaker;
+    // Light-sleep boards power the DAC down while dozing, if the mics don't share it.
+    if (board.light_sleep && g_codec.mic_link().switchable) g_codec_speaker.allow_power_down(g_codec.mic_link().format);
   }
   g_buttons.begin(board.buttons);
   const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled || board.encoder.a >= 0) &&
@@ -214,7 +262,7 @@ extern "C" void app_main(void) {
   hgp::diag::Parts parts;
   parts.display = hal.display == &g_display ? g_display.controller_name()
                       : hal.display == &g_parallel ? "st7789-i80"
-                      : hal.display == &g_rgb ? "st7701-rgb"
+                      : hal.display == &g_rgb ? g_rgb.controller_name()
                       : hal.display == &g_amoled ? "co5300"
                                                 : "none";
   parts.mic = hal.mic == &g_codec_mic ? (board.codec.mic == hgp::MicCodec::Es8311 ? "es8311" : "es7210")
@@ -251,24 +299,41 @@ extern "C" void app_main(void) {
   apply_touch_cancel();
   add_status_led(app, board.status_led);
   app.on_setting_changed = [](std::string_view key) {
-    if (key == "wifi_ssid" || key == "wifi_pass") { app.close_wifi_setup(); g_wifi.reconfigure(); }
+    if (key == "wifi_ssid" || key == "wifi_pass") app.close_wifi_setup();
+    if (key == "wifi_ssid" || key == "wifi_pass" || key == "wifi_nets") g_wifi.networks_changed();
     if (key == "touch_cancel") apply_touch_cancel();
+    if (key == "name" && hgp::board_config().bluetooth) g_phone.set_name(device_name());
   };
+  if (board.bluetooth && g_phone.begin(device_name())) {
+    app.on_phone_pair = [] { return g_phone.open_pairing(); };
+    app.on_phone_pair_close = [] { g_phone.close_pairing(); };
+    app.on_phone_forget = [] { g_phone.forget(); };
+  }
   app.on_wifi_setup = [] { return g_wifi.start_setup(); };
   app.on_wifi_setup_close = [] { g_wifi.stop_setup(); };
   app.on_wifi_setup_ap = [] { return g_wifi.setup_ap(); };
+  app.current_wifi = [] { return g_wifi.current(); };
   app.on_diag = [](hg::json::Value& report) {
     hgp::diag::report(report);
     report.set("ota", g_updater.describe());
+    if (const auto ma = g_power.charge_current_ma()) report.set("charge_current_ma", static_cast<unsigned>(*ma));
   };
   app.recent_log = &hgp::diag::recent_log;
+  if (board.light_sleep) keep_pins_through_sleep(board);
+  g_system.on_doze_start = [] { g_codec_speaker.power_down(); };
+  g_system.on_doze_end = [] {
+    g_codec_speaker.power_up();
+    g_wifi.retry_now();
+  };
   app.begin();
   hgp::console::begin();
 
   for (;;) {
     hgp::Event ev;
     // Block briefly for events, then run the core's timers and animations.
-    if (hgp::events::receive(ev, pdMS_TO_TICKS(10))) {
+    // Dozing on a light-sleep board, the chip may sleep between events; input and
+    // the network still wake it. Other boards keep the short wait.
+    if (hgp::events::receive(ev, pdMS_TO_TICKS(board.light_sleep && app.dozing() ? hg::App::kDozeWaitMs : 10))) {
       do {
         dispatch(app, ev);
         hgp::events::release(ev);

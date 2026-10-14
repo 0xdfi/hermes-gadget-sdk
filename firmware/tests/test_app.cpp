@@ -20,6 +20,12 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
   // System
   uint32_t clock = 1000;
   uint32_t now_ms() override { return clock; }
+  bool dozing = false;
+  int doze_changes = 0;
+  void set_dozing(bool d) override {
+    dozing = d;
+    ++doze_changes;
+  }
   void random_bytes(uint8_t* out, size_t len) override {
     for (size_t i = 0; i < len; ++i) out[i] = static_cast<uint8_t>(i);
   }
@@ -55,6 +61,7 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
   }
   bool set(std::string_view key, std::string_view value) override {
     if (storage_full) return false;
+    if (key.empty() || key.size() > 15) return false;  // NVS refuses longer keys, as the ESP32 port does
     kv[std::string(key)] = std::string(value);
     return true;
   }
@@ -63,6 +70,7 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
   // Display
   int width = 320, height = 240;
   bool round = false;
+  bool emissive = false;
   bool backlight = false;
   int brightness = 0, volume = 0;
   std::vector<uint16_t> fb = std::vector<uint16_t>(320 * 240, 0);
@@ -73,6 +81,7 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
     d.width = static_cast<uint16_t>(width);
     d.height = static_cast<uint16_t>(height);
     d.round = round;
+    d.emissive = emissive;
     d.has_backlight = backlight;
     return d;
   }
@@ -82,7 +91,11 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
     fb.assign(static_cast<size_t>(diameter * diameter), 0);
   }
   uint16_t* framebuffer() override { return fb.data(); }
-  void set_backlight(uint8_t percent) override { brightness = percent; }
+  bool lit_while_dozing = false;  // the screen was turned on before the port woke
+  void set_backlight(uint8_t percent) override {
+    brightness = percent;
+    if (percent && dozing) lit_while_dozing = true;
+  }
   void flush(uint16_t y0, uint16_t y1) override {
     ++flushes;
     flushed_rows += y1 - y0;
@@ -95,12 +108,13 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
 
   // Speaker
   bool spk_open = false;
+  bool spk_draining = false;  // ended, but the last audio is still playing
   size_t spk_samples = 0;
   bool begin(uint32_t) override { return spk_open = true; }
   void write(const int16_t*, size_t n) override { spk_samples += n; }
   void end() override { spk_open = false; }
   void abort() override { spk_open = false; }
-  bool busy() const override { return spk_open; }
+  bool busy() const override { return spk_open || spk_draining; }
   void set_volume(uint8_t percent) override { volume = percent; }
 
   hg::Hal hal() {
@@ -307,6 +321,56 @@ TEST("app: push-to-talk streams audio and shows the reply") {
   r.advance(200);
   CHECK(r.app.screen() == hg::Screen::Ready);
   CHECK_EQ(r.app.model().body, std::string("It is sunny."));
+}
+
+TEST("app: a turn lasts from TALK until the reply has finished playing") {
+  Rig r;
+  r.bring_online(true);
+  CHECK(!r.app.in_turn());
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(r.app.in_turn());
+  std::vector<int16_t> pcm(1600, 1000);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.in_turn());  // waiting for the reply
+  r.server(R"({"type":"turn.start","turn":"a1"})");
+  r.server(R"({"type":"audio.start","stream":5,"rate":16000,"format":"pcm16"})");
+  r.server(R"({"type":"reply","turn":"a1","text":"It is sunny."})");
+  r.server(R"({"type":"turn.end","turn":"a1","outcome":"success"})");
+  r.server(R"({"type":"audio.end","stream":5})");
+  r.fake.spk_draining = true;
+  r.advance(200);
+  CHECK(r.app.in_turn());  // the text is done, the last audio is still playing
+  r.fake.spk_draining = false;
+  r.advance(200);
+  CHECK(!r.app.in_turn());
+}
+
+TEST("app: a reply that arrives on its own is a turn while it plays, and a lost connection ends one") {
+  Rig r;
+  r.bring_online(true);
+  // A question from the agent: its text, then its spoken version.
+  r.server(R"({"type":"reply","text":"Red or blue?"})");
+  r.server(R"({"type":"audio.start","stream":3,"rate":16000,"format":"pcm16"})");
+  CHECK(r.app.in_turn());
+  r.server(R"({"type":"audio.end","stream":3})");
+  r.advance(7000);  // past the 6 s the app waits for more of a reply without turn.end
+  CHECK(!r.app.in_turn());
+
+  r.app.on_button(hg::Button::Talk, true);
+  std::vector<int16_t> pcm(1600, 1000);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.in_turn());
+  r.app.on_transport_closed("gone");
+  r.advance(200);
+  CHECK(!r.app.in_turn());
 }
 
 TEST("app: a short tap is discarded instead of sent") {
@@ -1222,6 +1286,232 @@ TEST("power: idle screen dims, sleeps and consumes the wake input without record
   CHECK_EQ(r.fake.brightness, 100);
 }
 
+namespace {
+// A PMIC whose power key the board can only see as short presses.
+struct KeyPower : hg::Power {
+  int presses = 0;
+  std::optional<bool> usb = false;  // on battery unless a test plugs it in
+  std::optional<bool> external_power() override { return usb; }
+  std::optional<hg::PowerStatus> read() override { return hg::PowerStatus{true, 3900, 70, false, false}; }
+  bool power_off() override { return true; }
+  bool take_key_press() override {
+    if (!presses) return false;
+    --presses;
+    return true;
+  }
+};
+}  // namespace
+
+TEST("power: the power key turns the screen off and back on, without a screen timeout") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  CHECK_EQ(r.fake.brightness, 100);
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 0);
+  for (int i = 0; i < 4; ++i) {  // a minute with the server alive
+    r.server(R"({"type":"ping"})");
+    r.advance(15000);
+  }
+  CHECK_EQ(r.fake.brightness, 0);  // stays off: no timeout brings it back
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 100);
+  for (int i = 0; i < 4; ++i) {
+    r.server(R"({"type":"ping"})");
+    r.advance(15000);
+  }
+  CHECK_EQ(r.fake.brightness, 100);  // and stays on
+}
+
+TEST("power: other input wakes a screen the power key turned off, and only wakes it") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(!r.fake.mic_on);
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.fake.last("audio.start") == nullptr);
+}
+
+TEST("power: a prompt turns a screen the power key turned off back on") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.server(R"({"type":"prompt","id":"wake","text":"Continue?"})");
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(r.app.screen() == hg::Screen::Prompt);
+}
+
+TEST("power: a dark screen stays dark while the connection drops and comes back") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_transport_closed("gone");
+  r.advance(5000);
+  CHECK_EQ(r.fake.brightness, 0);  // reconnecting in the dark (a commute must not light it)
+  r.app.on_network(false, "Wi-Fi lost");
+  r.app.on_network(true, "192.168.1.146");
+  r.advance(5000);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_button(hg::Button::Talk, true);  // the user still wakes it
+  CHECK_EQ(r.fake.brightness, 100);
+  r.app.on_button(hg::Button::Talk, false);
+}
+
+TEST("power: a lit screen stays lit while reconnecting, as before") {
+  Rig r;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.app.on_transport_closed("gone");
+  r.advance(60000);  // reconnect attempts fail: still not settled
+  CHECK_EQ(r.fake.brightness, 100);
+}
+
+TEST("power: the power key brings a dimmed screen back to full brightness") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.advance(15000);
+  CHECK_EQ(r.fake.brightness, 10);
+  key.presses = 1;
+  r.advance(100);
+  CHECK_EQ(r.fake.brightness, 100);
+}
+
+TEST("doze: a dark, idle screen on battery dozes; any input ends it before drawing") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  r.advance(1000);
+  CHECK(!r.fake.dozing);  // the screen is on
+  key.presses = 1;
+  r.advance(200);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK(r.fake.dozing);
+  CHECK(r.app.dozing());
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(!r.fake.dozing);
+  CHECK_EQ(r.fake.brightness, 100);
+  CHECK(!r.fake.lit_while_dozing);
+  r.app.on_button(hg::Button::Talk, false);
+}
+
+TEST("doze: external power never dozes, and plugging in ends a doze within 100 ms") {
+  KeyPower key;
+  key.usb = true;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(1000);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK(!r.fake.dozing);  // dark but plugged in: USB debugging keeps working
+  key.usb = false;
+  r.advance(200);
+  CHECK(r.fake.dozing);
+  key.usb = true;
+  r.advance(100);
+  CHECK(!r.fake.dozing);
+  CHECK_EQ(r.fake.brightness, 0);  // the screen stays off; only the doze ends
+}
+
+TEST("doze: an unknown power source counts as plugged in") {
+  KeyPower key;
+  key.usb = std::nullopt;  // the PMIC didn't answer
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(1000);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK(!r.fake.dozing);
+  CHECK_EQ(r.fake.doze_changes, 0);
+}
+
+TEST("doze: a prompt or a lost connection ends it; Screen timeout dozes too") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(200);
+  CHECK(r.fake.dozing);
+  r.server(R"({"type":"prompt","id":"wake","text":"Continue?"})");
+  r.advance(10);
+  CHECK(!r.fake.dozing);
+  r.app.console("no");
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.server(R"({"type":"ping"})");
+  r.advance(25000);
+  r.server(R"({"type":"ping"})");
+  r.advance(10000);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK(r.fake.dozing);
+  r.app.on_transport_closed("gone");
+  r.advance(10);
+  CHECK(!r.fake.dozing);
+}
+
+TEST("doze: without Wi-Fi it keeps dozing between join attempts; reconnecting to Hermes is awake") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(200);
+  CHECK(r.fake.dozing);
+  r.app.on_network(false, "Wi-Fi lost (reason 200)");
+  r.advance(60000);
+  CHECK(r.fake.dozing);  // the port wakes the chip for each attempt
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_network(true, "192.168.1.146");
+  r.advance(1500);  // Wi-Fi is back: reconnecting to Hermes
+  CHECK(!r.fake.dozing);
+}
+
+TEST("doze: boards without a power reading never doze") {
+  Rig r;
+  r.fake.backlight = true;
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.server(R"({"type":"ping"})");
+  r.advance(25000);
+  r.server(R"({"type":"ping"})");
+  r.advance(10000);
+  CHECK_EQ(r.fake.brightness, 0);
+  CHECK(!r.fake.dozing);
+}
+
 TEST("power: an idle settings menu sleeps on every view; the wake input restores it where it was") {
   Rig r;
   r.fake.backlight = true;
@@ -1298,6 +1588,200 @@ TEST("power: failed readings replace stale data and shutdown requires a second l
   CHECK_EQ(battery.shutdowns, 0);
   r.app.console("talk"); r.app.console("release");
   CHECK_EQ(battery.shutdowns, 1);
+}
+
+TEST("battery indicator: the top band shows the level, colours charging and low, and hides without a reading") {
+  for (bool round : {false, true}) {
+    FakeHal display;
+    if (round) display.make_round(466);
+    hg::Ui ui(display);
+    const int w = display.width;
+    const int y0 = 0, y1 = round ? 68 : 22;  // round: the panel above the UI square; else the top bar
+    const auto top = [&] {
+      return std::vector<uint16_t>(display.fb.begin() + y0 * w, display.fb.begin() + y1 * w);
+    };
+    const auto count = [&](uint16_t color) {
+      int n = 0;
+      for (uint16_t px : top()) n += px == color;
+      return n;
+    };
+    hg::UiModel m;
+    m.screen = hg::Screen::Ready;
+    m.link = hg::Link::Network;  // a yellow dot, so red and green below come from the battery
+    ui.render(m);
+    const auto none = top();
+    const uint16_t red = hg::rgb565(242, 95, 92), green = hg::rgb565(61, 214, 140);
+    m.battery = 65;
+    ui.render(m);
+    CHECK(top() != none);
+    CHECK_EQ(count(red), 0);
+    CHECK_EQ(count(green), 0);
+    m.battery = 8;
+    m.battery_low = true;
+    ui.render(m);
+    CHECK(count(red) > 0);  // low: red fill and text
+    CHECK_EQ(count(green), 0);
+    m.battery_charging = true;
+    ui.render(m);
+    CHECK(count(green) > 0);  // charging: green fill, and the text is no longer red
+    CHECK_EQ(count(red), 0);
+    // Percentage only: no icon, so charging turns the text green instead.
+    m.battery_icon = false;
+    ui.render(m);
+    CHECK(count(green) > 0);
+    const auto text_only = top();
+    m.battery_icon = true;
+    m.battery_text = false;
+    ui.render(m);
+    CHECK(top() != text_only);
+    CHECK(count(green) > 0);  // icon only: the fill
+    m.battery_text = true;
+    m.battery = -1;
+    m.battery_low = m.battery_charging = false;
+    ui.render(m);
+    CHECK(top() == none);
+    if (round) {
+      // Centred near the top edge, every lit pixel inside the circle.
+      m.battery = 100;
+      ui.render(m);
+      int min_x = w, max_x = 0, min_y = y1;
+      for (int y = 0; y < y1; ++y)
+        for (int x = 0; x < w; ++x)
+          if (display.fb[static_cast<size_t>(y * w + x)] != none[static_cast<size_t>(y * w + x)]) {
+            min_x = std::min(min_x, x); max_x = std::max(max_x, x); min_y = std::min(min_y, y);
+            const int dx = 2 * x + 1 - w, dy = 2 * y + 1 - w;
+            CHECK(dx * dx + dy * dy < w * w);
+          }
+      CHECK(std::abs((min_x + max_x) / 2 - w / 2) <= 2);
+      CHECK(min_y < 20);
+    }
+  }
+}
+
+TEST("display: an emissive panel leaves its background unlit; a backlit one keeps near black") {
+  for (bool emissive : {false, true}) {
+    FakeHal display;
+    display.make_round(466);
+    display.emissive = emissive;
+    hg::Ui ui(display);
+    hg::UiModel m;
+    m.screen = hg::Screen::Ready;
+    m.hero = true;
+    ui.render(m);
+    const uint16_t corner = display.fb[0], centre_edge = display.fb[static_cast<size_t>(233 * 466 + 120)];
+    CHECK_EQ(corner == 0, emissive);  // outside the UI square
+    CHECK_EQ(centre_edge == 0, emissive);  // inside it, beside the mascot
+  }
+}
+
+TEST("battery indicator: off by default, follows readings once chosen, and each select picks the next style") {
+  struct Battery : hg::Power {
+    hg::PowerStatus status{true, 3850, 65, false, false};
+    std::optional<hg::PowerStatus> read() override { return status; }
+    bool power_off() override { return true; }
+  } battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  CHECK_EQ(int(r.app.model().battery), -1);  // off until the user picks a style
+  CHECK(r.fake.kv.find("battery_display") == r.fake.kv.end());
+  CHECK_EQ(r.app.console("set battery_display both"), std::string("@ok battery_display"));
+  CHECK_EQ(int(r.app.model().battery), 65);
+  CHECK(r.app.model().battery_icon && r.app.model().battery_text);
+  CHECK(!r.app.model().battery_low);
+  battery.status = hg::PowerStatus{true, 3400, 7, false, false};
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 7);
+  CHECK(r.app.model().battery_low);
+  battery.status = hg::PowerStatus{true, 3400, 7, true, true};  // on USB and charging: no longer low
+  r.advance(5000);
+  CHECK(r.app.model().battery_charging);
+  CHECK(!r.app.model().battery_low);
+  battery.status = hg::PowerStatus{false, std::nullopt, 0, false, true};  // no battery fitted
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), -1);
+  battery.status = hg::PowerStatus{true, 3850, 65, false, false};
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 65);
+  CHECK_EQ(r.app.console("set battery_display maybe"),
+           std::string("@error battery_display must be icon, percentage, both or off"));
+  CHECK_EQ(r.app.console("set battery_display off"), std::string("@ok battery_display"));
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("off"));
+  CHECK_EQ(int(r.app.model().battery), -1);
+  // Each select on the battery page moves to the next style, saves it, and stays on the page.
+  r.app.open_settings();
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  CHECK(r.app.model().body.find("Indicator: Off\nTALK to change") != std::string::npos);  // a button board
+  struct Step { const char* saved; const char* shown; bool icon, text; };
+  for (const Step& step : {Step{"icon", "Icon", true, false}, Step{"percentage", "Percent", false, true},
+                           Step{"both", "Both", true, true}, Step{"off", "Off", true, true},
+                           Step{"icon", "Icon", true, false}}) {
+    r.app.console("talk"); r.app.console("release");
+    CHECK_EQ(r.fake.kv["battery_display"], std::string(step.saved));
+    CHECK(r.app.model().body.find(std::string("Indicator: ") + step.shown + "\n") != std::string::npos);
+    CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+    CHECK_EQ(int(r.app.model().battery), std::string(step.saved) == "off" ? -1 : 65);
+    CHECK_EQ(r.app.model().battery_icon, step.icon);
+    CHECK_EQ(r.app.model().battery_text, step.text);
+  }
+  r.app.console("settings close");
+  r.app.console("set battery_display both");
+  CHECK_EQ(int(r.app.model().battery), 65);
+}
+
+TEST("battery indicator: the battery page offers it only when a percentage can appear") {
+  struct Battery : hg::Power {
+    std::optional<hg::PowerStatus> status;
+    std::optional<hg::PowerStatus> read() override { return status; }
+    bool power_off() override { return true; }
+  } battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.open_settings();
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  for (const auto& reading : {std::optional<hg::PowerStatus>{},                                      // no readings
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{false, std::nullopt, 0, false, true}},  // no battery
+                              std::optional<hg::PowerStatus>{hg::PowerStatus{true, 3850, std::nullopt, false, false}}}) {  // no percentage
+    battery.status = reading;
+    r.advance(5000);
+    CHECK(r.app.model().body.find("Indicator") == std::string::npos);
+    r.app.console("talk"); r.app.console("release");
+    CHECK(r.fake.kv.find("battery_display") == r.fake.kv.end());  // a select changes nothing
+    CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  }
+  battery.status = hg::PowerStatus{true, 3850, 65, false, false};
+  r.advance(5000);
+  CHECK(r.app.model().body.find("Indicator: Off") != std::string::npos);
+  r.app.console("talk"); r.app.console("release");
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("icon"));
+}
+
+TEST("battery indicator: touch screens say tap") {
+  struct Battery : hg::Power {
+    std::optional<hg::PowerStatus> read() override { return hg::PowerStatus{true, 3850, 65, false, false}; }
+    bool power_off() override { return true; }
+  } battery;
+  Rig r(Rig::touch_profile());
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.open_settings();
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  CHECK_EQ(r.app.model().detail, std::string("Battery and power"));
+  CHECK(r.app.model().body.find("Indicator: Off\nTap to change") != std::string::npos);
+}
+
+TEST("battery indicator: boards without a power driver have no battery page") {
+  Rig r;
+  r.bring_online(true);
+  r.app.open_settings();
+  for (int i = 0; i < 20; ++i) {
+    CHECK(r.app.model().detail != "Battery and power");
+    r.app.console("cancel");
+  }
+  CHECK_EQ(int(r.app.model().battery), -1);
 }
 
 TEST("power: a peripheral rail cannot be selected as device power-off") {
@@ -1515,4 +1999,245 @@ TEST("app: the device still gets an identity when its key can't be saved") {
   r.app.begin();
   CHECK(!r.app.device_id().empty());
   CHECK(r.fake.kv.count("device_key") == 0);
+}
+
+TEST("app: wifi saves, lists, joins and forgets networks without showing passwords") {
+  Rig r;
+  std::vector<std::string> changed;
+  r.app.on_setting_changed = [&](std::string_view key) { changed.emplace_back(key); };
+  r.app.current_wifi = [] { return std::string("My Home"); };
+  CHECK_EQ(r.app.console(R"(wifi add "My Home" "pass word 1")"), std::string("@ok wifi add"));
+  CHECK_EQ(r.app.console("wifi add Phone"), std::string("@ok wifi add"));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("My Home"));  // the first one, for older firmware
+  const std::string list = r.app.console("wifi list");
+  CHECK(list.rfind("@wifi ", 0) == 0);
+  Value v;
+  CHECK(hg::json::parse(list.substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(2));
+  CHECK_EQ(v["networks"][0]["ssid"].as_string(), std::string("My Home"));
+  CHECK(!v["networks"][0]["tested"].as_bool(true));
+  CHECK(!v["networks"][0]["open"].as_bool(true));
+  CHECK(v["networks"][1]["open"].as_bool());
+  CHECK_EQ(v["current"].as_string(), std::string("My Home"));
+  CHECK_EQ(v["max"].as_int(), int64_t(5));
+  CHECK(list.find("pass word") == std::string::npos);
+  CHECK_EQ(r.app.console("wifi"), list);
+
+  CHECK_EQ(r.app.console("wifi join Phone"), std::string("@ok wifi join"));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("Phone"));
+  CHECK(!r.fake.kv.count("wifi_pass"));
+  CHECK_EQ(r.app.console(R"(wifi forget "My Home")"), std::string("@ok wifi forget"));
+  CHECK_EQ(changed, std::vector<std::string>({"wifi_nets", "wifi_nets", "wifi_nets", "wifi_nets"}));
+  CHECK_EQ(r.app.console("wifi forget Elsewhere"), std::string("@error no saved network Elsewhere"));
+  CHECK_EQ(r.app.console("wifi join Elsewhere"), std::string("@error no saved network Elsewhere"));
+  CHECK_EQ(changed.size(), size_t(4));
+}
+
+TEST("app: wifi refuses bad networks, a sixth network and malformed commands") {
+  Rig r;
+  CHECK(r.app.console("wifi add Home short").rfind("@error Use an 8..63", 0) == 0);
+  CHECK(r.app.console(R"(wifi add "")").rfind("@error Network name", 0) == 0);
+  for (int i = 0; i < 5; ++i) CHECK_EQ(r.app.console("wifi add Net" + std::to_string(i)), std::string("@ok wifi add"));
+  CHECK_EQ(r.app.console("wifi add Net5"), std::string("@error 5 networks saved; forget one first"));
+  CHECK(r.app.console("wifi add").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi add a b c").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi join a b").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi list extra").rfind("@error usage", 0) == 0);
+  CHECK(r.app.console("wifi rename a").rfind("@error usage", 0) == 0);
+  r.fake.storage_full = true;
+  CHECK_EQ(r.app.console("wifi forget Net0"), std::string("@error could not save the network list"));
+}
+
+TEST("app: set wifi_ssid and wifi_pass put a network first and keep the others") {
+  Rig r;
+  r.app.console("wifi add Office password2");
+  CHECK_EQ(r.app.console("set wifi_ssid Home"), std::string("@ok wifi_ssid"));
+  CHECK_EQ(r.app.console("set wifi_pass password1"), std::string("@ok wifi_pass"));
+  Value v;
+  CHECK(hg::json::parse(r.app.console("wifi list").substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(2));
+  CHECK_EQ(v["networks"][0]["ssid"].as_string(), std::string("Home"));
+  CHECK_EQ(v["networks"][1]["ssid"].as_string(), std::string("Office"));
+  CHECK(r.fake.kv["wifi_nets"].find("password1") != std::string::npos);  // saved, not just mirrored
+  // Erasing the name forgets that network; the next one takes its place.
+  CHECK_EQ(r.app.console("set wifi_ssid"), std::string("@ok wifi_ssid"));
+  CHECK(hg::json::parse(r.app.console("wifi list").substr(6), v));
+  CHECK_EQ(v["networks"].size(), size_t(1));
+  CHECK_EQ(r.fake.kv["wifi_ssid"], std::string("Office"));
+  CHECK_EQ(r.app.console("get wifi_pass"), std::string(R"(@value {"key":"wifi_pass","value":"<set>"})"));
+}
+
+TEST("app: factory-reset forgets every saved network") {
+  Rig r;
+  r.app.console("wifi add Home password1");
+  r.app.console("wifi add Office password2");
+  r.app.console("factory-reset");
+  CHECK(!r.fake.kv.count("wifi_nets"));
+  CHECK(!r.fake.kv.count("wifi_ssid"));
+}
+
+namespace {
+
+// The port's side of phone pairing, as the hooks see it.
+struct FakePhone {
+  int pair_calls = 0, close_calls = 0, forget_calls = 0;
+  bool can_pair = true;
+  void attach(hg::App& app) {
+    app.on_phone_pair = [this] { ++pair_calls; return can_pair; };
+    app.on_phone_pair_close = [this] { ++close_calls; };
+    app.on_phone_forget = [this] { ++forget_calls; };
+  }
+};
+
+// Steps through the settings menu until `detail` shows; false if it never does.
+bool find_setting(Rig& r, const std::string& detail) {
+  for (int i = 0; i < 20; ++i) {
+    if (r.app.model().detail == detail) return true;
+    r.app.console("cancel");
+  }
+  return false;
+}
+
+}  // namespace
+
+TEST("phone: boards without Bluetooth have no phone item, command or status") {
+  Rig r;
+  r.bring_online(true);
+  CHECK(r.app.open_settings());
+  CHECK(!find_setting(r, "Phone app"));
+  CHECK(find_setting(r, "Back to Hermes"));  // the items around it are still reachable
+  r.app.console("settings close");
+  CHECK_EQ(r.app.console("phone"), std::string("@error Bluetooth is not enabled on this board"));
+  CHECK_EQ(r.app.console("phone pair"), std::string("@error Bluetooth is not enabled on this board"));
+  CHECK(r.app.console("status").find("\"phone\"") == std::string::npos);
+}
+
+TEST("phone: the settings item opens pairing, shows the passkey and closes when paired") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK(r.app.open_settings());
+  CHECK(find_setting(r, "Phone app"));
+  CHECK(r.app.model().body.find("No phone paired") == 0);
+  r.app.console("talk");
+  r.app.console("release");
+  CHECK_EQ(phone.pair_calls, 1);
+  CHECK(r.app.phone_pairing_open());
+  CHECK(!r.app.settings_open());
+  CHECK(r.app.screen() == hg::Screen::Setup);
+  CHECK_EQ(r.app.model().headline, std::string("Pair a phone"));
+  CHECK(!r.app.open_settings());  // the pairing screen owns the display
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":0,\"connected\":false,\"pairing\":true}"));
+
+  r.app.on_phone_passkey(42);
+  CHECK_EQ(r.app.model().headline, std::string("Code 000042"));
+  // TALK doesn't record over the passkey.
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(!r.fake.mic_on);
+  r.app.on_button(hg::Button::Talk, false);
+
+  r.app.on_phone_paired(true);
+  r.app.on_phone_status(1, true);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 1);
+  CHECK_EQ(r.app.model().hint, std::string("Phone paired"));
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":1,\"connected\":true,\"pairing\":false}"));
+  Value status;
+  CHECK(hg::json::parse(r.app.console("status").substr(8), status));
+  CHECK_EQ(status["phone"]["paired"].as_int(), int64_t(1));
+  CHECK(r.app.open_settings());
+  CHECK(find_setting(r, "Phone app"));
+  CHECK(r.app.model().body.find("Phone connected.") == 0);
+}
+
+TEST("phone: the window closes on cancel and after two minutes; a late passkey is ignored") {
+  Rig r(Rig::touch_profile());
+  FakePhone phone;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("phone pair"), std::string("@ok phone pairing open"));
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 1);
+
+  CHECK(r.app.start_phone_pairing());
+  r.advance(hg::App::kPhonePairMs - 100);
+  CHECK(r.app.phone_pairing_open());
+  r.advance(200);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(phone.close_calls, 2);
+  CHECK_EQ(r.app.model().hint, std::string("Phone pairing closed"));
+  r.app.on_phone_passkey(123456);  // outside the window: nothing to show it on
+  CHECK(r.app.screen() != hg::Screen::Setup);
+
+  CHECK(r.app.start_phone_pairing());
+  CHECK_EQ(r.app.console("phone pair close"), std::string("@ok phone pairing closed"));
+  CHECK(!r.app.phone_pairing_open());
+}
+
+TEST("phone: Wi-Fi setup, a question and failed pairing each end the window") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.app.on_wifi_setup = [] { return std::string("Temporary setup network"); };
+  r.bring_online(true);
+  CHECK(r.app.start_phone_pairing());
+  CHECK(r.app.start_wifi_setup());
+  CHECK(!r.app.phone_pairing_open());
+  CHECK(r.app.wifi_setup_open());
+  CHECK(r.app.start_phone_pairing());  // and the other way round
+  CHECK(!r.app.wifi_setup_open());
+
+  r.server(R"({"type":"prompt","id":"q1","title":"Allow?","text":"Run it?"})");
+  CHECK(!r.app.phone_pairing_open());
+  CHECK(!r.app.start_phone_pairing());  // not over a question
+  r.app.console("yes");
+
+  CHECK(r.app.start_phone_pairing());
+  r.app.on_phone_paired(false);
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(r.app.model().hint, std::string("Phone pairing failed"));
+}
+
+TEST("phone: Bluetooth that won't start leaves no window; forget and factory-reset remove phones") {
+  Rig r;
+  FakePhone phone;
+  phone.can_pair = false;
+  phone.attach(r.app);
+  r.bring_online(true);
+  CHECK_EQ(r.app.console("phone pair"), std::string("@error phone pairing unavailable"));
+  CHECK(!r.app.phone_pairing_open());
+  CHECK_EQ(r.app.model().hint, std::string("Bluetooth unavailable"));
+
+  r.app.on_phone_status(2, true);
+  CHECK_EQ(r.app.console("phone forget"), std::string("@ok phone forget"));
+  CHECK_EQ(phone.forget_calls, 1);
+  CHECK_EQ(r.app.console("phone"), std::string("@phone {\"paired\":0,\"connected\":false,\"pairing\":false}"));
+  r.app.console("factory-reset");
+  CHECK_EQ(phone.forget_calls, 2);
+  CHECK_EQ(r.app.console("phone bogus"), std::string("@error usage: phone [pair [close] | forget]"));
+}
+
+TEST("phone: the pairing screen stays lit through the screen timeout") {
+  Rig r;
+  FakePhone phone;
+  phone.attach(r.app);
+  r.fake.backlight = true;
+  r.bring_online(true);
+  r.app.console("set screen_timeout 10");
+  r.advance(12000);
+  CHECK_EQ(r.fake.brightness, 0);  // idle, the screen goes dark
+  CHECK(r.app.start_phone_pairing());
+  CHECK_EQ(r.fake.brightness, 100);
+  r.advance(30000);  // three timeouts, still inside the server's heartbeat
+  CHECK(r.app.phone_pairing_open());
+  CHECK_EQ(r.fake.brightness, 100);
+  // A passkey after the window has closed doesn't wake the screen.
+  r.app.close_phone_pairing();
+  r.advance(12000);
+  CHECK_EQ(r.fake.brightness, 0);
+  r.app.on_phone_passkey(123456);
+  CHECK_EQ(r.fake.brightness, 0);
 }

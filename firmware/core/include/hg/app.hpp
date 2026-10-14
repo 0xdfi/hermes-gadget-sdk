@@ -101,9 +101,18 @@ class App {
   bool settings_title_hit(int x, int y) const;
   // Returns true when this input only wakes a sleeping display.
   bool wake_display();
+  // A short press of the PMIC's power key: turns the screen off, or back on.
+  // Wi-Fi and the Hermes connection stay up.
+  void on_power_key();
+  // Dozing (System::set_dozing): the port's loop may wait this long for events.
+  static constexpr uint32_t kDozeWaitMs = 100;
+  bool dozing() const { return dozing_; }
   bool start_wifi_setup();
   void close_wifi_setup();
   bool wifi_setup_open() const { return !wifi_setup_text_.empty(); }
+  // A turn is under way: listening, waiting for a reply, or responding, which lasts until the
+  // reply has finished playing. The port keeps Wi-Fi at full power until it ends.
+  bool in_turn() const { return mode_ != Mode::Idle; }
   // These run on the app task. Start returns private, on-screen instructions.
   std::function<std::string()> on_wifi_setup;
   std::function<void()> on_wifi_setup_close;
@@ -111,11 +120,32 @@ class App {
   // show a QR code. The port sets this only where it has the values.
   std::function<WifiSetupAp()> on_wifi_setup_ap;
 
+  // A phone companion app over Bluetooth, on boards whose port sets the hooks
+  // below. Pairing opens for kPhonePairMs from the settings menu or `phone pair`;
+  // the phone types the passkey this screen shows. A paired phone sends console
+  // lines (App::console) and reads the replies.
+  static constexpr uint32_t kPhonePairMs = 120000;
+  bool start_phone_pairing();
+  void close_phone_pairing();
+  bool phone_pairing_open() const { return phone_pairing_; }
+  // From the port: the passkey to show, the pairing's result, and the number of
+  // paired phones and whether one is connected.
+  void on_phone_passkey(uint32_t passkey);
+  void on_phone_paired(bool ok);
+  void on_phone_status(int paired, bool connected);
+  // These run on the app task. on_phone_pair returns false when Bluetooth can't start.
+  std::function<bool()> on_phone_pair;
+  std::function<void()> on_phone_pair_close;
+  std::function<void()> on_phone_forget;  // removes every paired phone
+
   // Serial-console command (provisioning, bench automation). Returns the
   // response; machine-readable lines start with '@'.
   std::string console(std::string_view line);
   // Invoked after a setting changes through the console (e.g. Wi-Fi keys).
+  // The `wifi` command reports a changed network list as "wifi_nets".
   std::function<void(std::string_view key)> on_setting_changed;
+  // The name of the Wi-Fi network the device is on, or empty; for `wifi list`.
+  std::function<std::string()> current_wifi;
   // Adds the port's facts to the console's `diag` report: memory, reset reason,
   // radio, which drivers came up.
   std::function<void(json::Value& report)> on_diag;
@@ -199,6 +229,7 @@ class App {
   void stop_playback();
   void cancel_turn();
   bool known_setting(std::string_view key) const;
+  std::string wifi_command(std::string_view args);
   void start_new_session();
   void scroll_body(int delta);
   // Long text pages itself, so boards without scroll buttons can read it all.
@@ -236,7 +267,7 @@ class App {
   uint8_t volume_ = 70;
   uint8_t brightness_ = 100;
   enum class Menu : uint8_t { Closed, Volume, Brightness, TalkMode, Microphone, Speaker, Display, Inputs, Info,
-                              Power, IdleTimer, PowerOff, WifiSetup, Back };
+                              Power, IdleTimer, PowerOff, WifiSetup, Phone, Back };
   enum class HardwareCheck : uint8_t { None, Microphone, Speaker, Display, Inputs };
   Menu menu_ = Menu::Closed;
   HardwareCheck hardware_check_ = HardwareCheck::None;
@@ -244,13 +275,30 @@ class App {
   std::string wifi_setup_text_;
   // The setup network's scannable code, encoded once when the screen opens.
   qr::Code wifi_setup_qr_;
+  // phone pairing (on_phone_pair)
+  bool phone_pairing_ = false;
+  uint32_t phone_pair_until_ = 0;
+  std::string phone_passkey_;
+  int phones_paired_ = 0;
+  bool phone_connected_ = false;
+  void phone_tick();
+  json::Value phone_value() const;
+  // Closes the Wi-Fi setup and phone pairing screens, for what takes the screen over.
+  void close_setup_screens();
   bool talk_held_ = false;
   bool settings_chord_fired_ = false;
   uint32_t talk_down_at_ = 0;
   std::optional<PowerStatus> power_status_;
-  uint32_t power_read_at_ = 0, activity_at_ = 0;
+  uint32_t power_read_at_ = 0, activity_at_ = 0, power_key_polled_at_ = 0;
   uint32_t screen_timeout_ms_ = 0;
+  // What the battery indicator shows, in the order a tap cycles through.
+  enum class BatteryIndicator : uint8_t { Icon, Percentage, Both, Off };
+  BatteryIndicator battery_display_ = BatteryIndicator::Off;
+  // Whether the indicator could show anything: a percentage from a fitted battery.
+  bool battery_readable() const;
   bool display_dimmed_ = false, display_sleeping_ = false, power_off_armed_ = false;
+  bool dozing_ = false, on_battery_ = false;
+  void set_dozing(bool dozing);
   uint8_t wake_buttons_ = 0;
 
   // connection

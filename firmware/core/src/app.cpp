@@ -6,6 +6,7 @@
 
 #include "hg/crypto.hpp"
 #include "hg/protocol.hpp"
+#include "hg/wifi_networks.hpp"
 
 namespace hg {
 namespace {
@@ -36,7 +37,7 @@ constexpr uint32_t kOtaRestartMs = 1000;    // time for ota.done to leave before
 constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
-const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "wifi_ssid", "wifi_pass"};
+const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "wifi_ssid", "wifi_pass"};
 
 bool is_secret(std::string_view key) { return key == "token" || key == "wifi_pass"; }
 
@@ -105,6 +106,10 @@ void App::load_settings() {
   brightness_ = static_cast<uint8_t>(std::max(5, std::min(100, std::atoi(setting("brightness", "100").c_str()))));
   if (hal_.display && hal_.display->info().has_backlight) hal_.display->set_backlight(brightness_);
   screen_timeout_ms_ = static_cast<uint32_t>(std::max(0, std::min(3600, std::atoi(setting("screen_timeout", "0").c_str())))) * 1000;
+  const std::string indicator = setting("battery_display", "off");
+  battery_display_ = indicator == "icon" ? BatteryIndicator::Icon
+                       : indicator == "percentage" ? BatteryIndicator::Percentage
+                       : indicator == "both" ? BatteryIndicator::Both : BatteryIndicator::Off;
   activity_at_ = now();
   display_dimmed_ = display_sleeping_ = false;
 }
@@ -506,7 +511,7 @@ void App::h_reply(const json::Value& m) {
 }
 
 void App::h_audio_start(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   if (!hal_.speaker || mode_ == Mode::Listening) return;
@@ -603,7 +608,7 @@ void App::h_display(const json::Value& m) {
 }
 
 void App::h_image_start(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   if (!hal_.display || !ui_) return;
@@ -636,7 +641,7 @@ void App::h_image_end(const json::Value& m) {
 }
 
 void App::h_prompt(const json::Value& m) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   const std::string& id = m["id"].as_string();
@@ -731,6 +736,10 @@ void App::h_error(const json::Value& m) {
 void App::on_button(Button button, bool pressed) {
   if (!wifi_setup_text_.empty()) {
     if (button == Button::Cancel && !pressed) close_wifi_setup();
+    return;
+  }
+  if (phone_pairing_) {
+    if (button == Button::Cancel && !pressed) close_phone_pairing();
     return;
   }
   const auto bit = static_cast<uint8_t>(1u << static_cast<unsigned>(button));
@@ -932,7 +941,7 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
 }
 
 void App::submit_text(std::string_view text) {
-  close_wifi_setup();
+  close_setup_screens();
   wake_display();
   if (settings_open()) close_settings();
   std::string t = trim(text);
@@ -1147,7 +1156,7 @@ void App::h_ota_begin(const json::Value& m) {
     return;
   }
   ota_ = Ota::Receiving;
-  close_wifi_setup();
+  close_setup_screens();
   close_settings();
   ota_received_ = ota_acked_ = 0;
   ota_seq_ = 0;
@@ -1229,6 +1238,7 @@ void App::tick() {
   const uint32_t t = now();
   power_tick();
   settings_tick();
+  phone_tick();
 
   if (phase_ == Phase::Boot && static_cast<int32_t>(t - boot_until_) >= 0) {
     phase_ = network_up_ ? Phase::Connecting : Phase::NoNetwork;
@@ -1350,6 +1360,16 @@ void App::update_model() {
   m.speaking = speaking();
   m.color_test = false;
   m.settings_hold = settings_hold_live();
+  m.battery = -1;
+  m.battery_charging = m.battery_low = false;
+  m.battery_icon = battery_display_ != BatteryIndicator::Percentage;
+  m.battery_text = battery_display_ != BatteryIndicator::Icon;
+  if (battery_display_ != BatteryIndicator::Off && battery_readable()) {
+    const auto& p = *power_status_;
+    m.battery = static_cast<int8_t>(std::min<int>(*p.battery_percent, 100));
+    m.battery_charging = p.charging == true;
+    m.battery_low = *p.battery_percent <= 10 && p.external_power == false;
+  }
 
   switch (phase_) {
     case Phase::NoNetwork:
@@ -1367,6 +1387,23 @@ void App::update_model() {
     m.qr = wifi_setup_qr_.ok() ? &wifi_setup_qr_ : nullptr;
     m.scroll = 0;
     m.hint = profile_.touch_screen ? "Swipe down to close" : profile_.cancel_label + " to close";
+    if (ui_) ui_->render(m);
+    return;
+  }
+  if (phone_pairing_) {
+    m.screen = Screen::Setup;
+    m.scroll = 0;
+    if (phone_passkey_.empty()) {
+      m.headline = "Pair a phone";
+      m.detail = "Bluetooth: " + name_;
+      m.body = "On your phone, open the Hermes app and choose " + name_ +
+               ". This device then shows a code to type on the phone.";
+    } else {
+      m.headline = "Code " + phone_passkey_;
+      m.detail = "Type this code on your phone";
+      m.body = "Only a phone in front of you should ask for it.";
+    }
+    m.hint = profile_.touch_screen ? "Swipe down to cancel" : profile_.cancel_label + " to cancel";
     if (ui_) ui_->render(m);
     return;
   }
@@ -1542,6 +1579,7 @@ json::Value App::status_value() const {
   if (hal_.power) s.set("power", power_value());
   if (!pairing_code_.empty()) s.set("pairing_code", pairing_code_);
   if (!prompt_id_.empty()) s.set("prompt", prompt_id_);
+  if (on_phone_pair) s.set("phone", phone_value());
   if (!fatal_.empty()) s.set("error", fatal_);
   if (ota_ != Ota::Idle) {
     json::Value u = json::Value::object();
@@ -1589,13 +1627,28 @@ std::string App::console(std::string_view raw) {
     for (const char* k : kSettingKeys) keys += std::string(" ") + k;
     for (const auto& k : profile_.extra_settings) keys += " " + k;
     return "@help commands: status | diag [log] | get <key> | set <key> <value> | say <text> | talk | release | "
-           "cancel | new-session | settings [close] | wifi-setup [close] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
+           "cancel | new-session | settings [close] | wifi-setup [close] | wifi [list | add <ssid> [password] | join <ssid> | "
+           "forget <ssid>] | phone [pair [close] | forget] | yes | no | reconnect | forget-key | factory-reset   keys:" + keys;
   }
   if (cmd == "status") return "@status " + status_json();
+  if (cmd == "phone") {
+    if (!on_phone_pair) return "@error Bluetooth is not enabled on this board";
+    if (rest.empty()) return "@phone " + phone_value().dump();
+    if (rest == "pair") return start_phone_pairing() ? "@ok phone pairing open" : "@error phone pairing unavailable";
+    if (rest == "pair close") { close_phone_pairing(); return "@ok phone pairing closed"; }
+    if (rest == "forget") {
+      close_phone_pairing();
+      if (on_phone_forget) on_phone_forget();
+      on_phone_status(0, false);
+      return "@ok phone forget";
+    }
+    return "@error usage: phone [pair [close] | forget]";
+  }
   if (cmd == "wifi-setup") {
     if (rest == "close") { close_wifi_setup(); return "@ok Wi-Fi setup closed"; }
     return start_wifi_setup() ? "@ok " + wifi_setup_text_ : "@error Wi-Fi setup unavailable";
   }
+  if (cmd == "wifi") return wifi_command(rest);
   if (cmd == "settings") {
     if (rest == "close") { close_settings(); return "@ok settings closed"; }
     return open_settings() ? "@ok settings" : "@error settings unavailable during a prompt or update";
@@ -1621,10 +1674,18 @@ std::string App::console(std::string_view raw) {
     if (key == "screen_timeout" && !value.empty() &&
         (value.size() > 4 || value.find_first_not_of("0123456789") != std::string::npos || std::atoi(value.c_str()) > 3600))
       return "@error screen_timeout must be 0..3600 seconds";
+    if (key == "battery_display" && !value.empty() && value != "icon" && value != "percentage" && value != "both" &&
+        value != "off")
+      return "@error battery_display must be icon, percentage, both or off";
     if (!hal_.storage) return "@error no storage";
     if (value.empty()) hal_.storage->erase(key);
     else if (!hal_.storage->set(key, value)) return "@error could not save " + key;
     load_settings();
+    if (key == "wifi_ssid" || key == "wifi_pass") {
+      // These keys hold the first saved network: bring the list in line.
+      WifiNetworks networks = WifiNetworks::load(*hal_.storage);
+      if (networks.dirty()) networks.save(*hal_.storage);
+    }
     if (key == "server" || key == "token") {
       // Reconnect with the new endpoint or credentials.
       fatal_.clear();
@@ -1685,6 +1746,8 @@ std::string App::console(std::string_view raw) {
     if (cmd == "factory-reset") {
       for (const char* k : kSettingKeys) hal_.storage->erase(k);
       for (const auto& k : profile_.extra_settings) hal_.storage->erase(k);
+      hal_.storage->erase("wifi_nets");
+      if (on_phone_forget) on_phone_forget();
     }
     return "@ok " + cmd + " (restart the device to apply)";
   }

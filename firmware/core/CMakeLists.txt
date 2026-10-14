@@ -3,6 +3,7 @@ set(HG_CORE_SOURCES
     src/app.cpp
     src/app_settings.cpp
     src/app_power.cpp
+    src/app_phone.cpp
     src/canvas.cpp
     src/crypto.cpp
     src/font5x7.cpp
@@ -14,6 +15,7 @@ set(HG_CORE_SOURCES
     src/touch.cpp
     src/ui.cpp
     src/vad.cpp
+    src/wifi_networks.cpp
     # Vendored QR encoder (MIT, Richard Moore / Project Nayuki). Adapted for this
     # project; see NOTICE. Committed as .cpp because the project is CXX-only.
     third_party/qrcode/qrcode.cpp

@@ -184,12 +184,12 @@ Use `esp32s3-touch-amoled-175c` for SKUs 33691/33692, the enclosed model with 32
 | CST9217 touch | I2C 0x5A, reset 2; interrupt 11 unused because input is polled |
 | I2C | SDA 15, SCL 14, 400 kHz |
 | ES8311 speaker / ES7210 microphones | MCLK 16, BCLK 9, WS 45, DOUT 8, DIN 10; amplifier enable 46 |
-| AXP2101 | I2C 0x34; ALDO1 at 3.3 V supplies analog audio |
+| AXP2101 | I2C 0x34; ALDO1 at 3.3 V supplies analog audio; reports PWR short presses |
 | BOOT | GPIO 0, TALK |
 
-Hold the screen or BOOT to talk. Swipe down to cancel. Hold the **SETTINGS** target at the top of the screen for one second to open settings. PWR retains its hardware power function; firmware does not map it to CANCEL on this model. There is no TCA9554 expander. The IMU and RTC are not exposed.
+Hold the screen or BOOT to talk. Swipe down to cancel. Hold the **SETTINGS** target at the top of the screen for one second to open settings. A short press of PWR turns the screen off, and another press, a touch or BOOT turns it back on; Wi-Fi and the connection to Hermes stay up. PWR reaches only the AXP2101 on this model, so the firmware reads its short-press interrupt there; holding PWR keeps the PMIC's own power behavior. There is no TCA9554 expander. The IMU and RTC are not exposed.
 
-The firmware enables ALDO1 for audio while preserving the other rails and charging settings. Battery readings and local power-off use the existing AXP2101 driver. An unavailable ADC or gauge reading remains absent. Use the settings menu for microphone, speaker, display, touch, volume, brightness and power checks.
+The firmware enables ALDO1 for audio while preserving the other rails and charging settings. To save battery, the amplifier (GPIO 46) is powered only while sound plays, the ES7210 microphones only while recording, and the CPU drops from 240 to 80 MHz when idle (ESP-IDF power management). On battery, with the screen off and nothing happening, it also light-sleeps between events while staying connected to Wi-Fi and Hermes. It stays awake while it reconnects to Hermes, including for as long as Wi-Fi is up but Hermes can't be reached; on USB it never light-sleeps, so the serial console, flashing and JTAG keep working. Battery readings and local power-off use the existing AXP2101 driver. An unavailable ADC or gauge reading remains absent. Use the settings menu for microphone, speaker, display, touch, volume, brightness and power checks.
 
 Build and flash over the board's USB-C data port:
 
@@ -269,7 +269,7 @@ Board option `esp32s3-touch-amoled-175`, for Waveshare's all-in-one board: an ES
 
 `set touch_cancel swipe` keeps only the swipe as CANCEL, `set touch_cancel pwr` only the PWR key, and `set touch_cancel both` restores the default. The same gestures work on the `sim-466x466-round` simulator board with the mouse.
 
-The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) shows battery voltage, the PMIC's estimated percentage, charging and USB power. When the gauge reports no valid estimate (it is never initialized on the AMOLED-1.75C, where it reads 0 on a full cell), the percentage is estimated from the cell voltage on a linear 3.3 to 4.2 V scale instead; that estimate reads high while charging. Readings refresh every five seconds and appear in `status`, `diag` and Hermes sensor telemetry. Failed reads become unavailable; they do not retain a stale percentage. A low gauge estimate, 10 percent or less without USB, adds a reminder on the idle screen.
+The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) shows battery voltage, the PMIC's estimated percentage, charging and USB power. When the gauge reports no valid estimate, the percentage is estimated from the cell voltage on a linear 3.3 to 4.2 V scale instead; that estimate reads high while charging. The AMOLED-1.75C uses curves measured on its 500 mAh cell instead. On battery, the percentage follows a discharge curve at the median voltage of the last minute and never rises until the board is charged. While charging, it follows a charge curve, never falls, and stays at most 99% until the AXP2101 reports charging done, then shows 100, including while the AXP2101 later tops up the cell on USB. The discharge curve was measured at about 93 mA with the screen off, so a heavier load reads a few points low, and its 80 to 95% range is extrapolated. The charge curve assumes the charge current stays constant; `diag` reports the AXP2101's limit as `charge_current_ma` (200 mA on the measured board, set in eFuse; the datasheet's charger section gives 300 mA). Readings refresh every five seconds and appear in `status`, `diag` and Hermes sensor telemetry. Failed reads become unavailable; they do not retain a stale percentage. A low gauge estimate, 10 percent or less without USB, adds a reminder on the idle screen. The [battery indicator](using-gadget.md#device-settings-and-hardware-checks), off by default, can show the same percentage at the top of the screen.
 
 Select **Power off** twice to request shutdown through the AXP2101. Use PWR to turn the board on again. This is a local control; Hermes has no power-off action. USB power may affect shutdown and wake behavior, so test both power sources on your board revision. The physical PWR key retains its existing Cancel behavior and the PMIC's own long-hold behavior.
 
@@ -414,6 +414,39 @@ This port is written from Elecrow's published factory example ([CrowPanel reposi
 
 Panel timings (12 MHz PCLK, 10/4/20 porches) and the ST7701 init table follow the factory `RotaryScreen_2_1` Arduino example at commit `faf8ecf`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md). Display bring-up, the brightness scale, Wi-Fi, pairing and the serial console are smoke-checked on real hardware; touch coordinates and encoder direction are not yet physically verified — see the [hardware validation table](hardware-validation.md).
 
+## Elecrow CrowPanel 5.0-inch HMI
+
+Board option `crowpanel-5.0`, for Elecrow's 5.0" landscape display (DIS07050H): an ESP32-S3-WROOM-1-N4R8 (8 MB octal PSRAM) with 4 MB flash, an 800×480 ILI6122/ILI5960 panel on a 16-bit RGB bus, and a GT911 capacitive touchscreen. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.
+
+Unlike the CrowPanel 2.1-inch, the ILI6122 needs **no command bring-up**: it is scanned out continuously over the 16-bit RGB bus through the built-in `esp_lcd_rgb` driver, with no PCF8574 expander and no panel-enable line. The `RgbDisplay` port picks this path from `RgbController::Ili6122`. GPIO 38 is the user `GPIO_D` header pin, and the firmware leaves it alone.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ILI6122/ILI5960, 16-bit RGB | DE 40, VSYNC 41, HSYNC 39, PCLK 0 at 15 MHz; data 8/3/46/9/1/5/6/7/15/16/4/45/48/47/21/14 (B0..B4, G0..G5, R0..R4); 800×480 |
+| Backlight | PWM | GPIO 2, active-high |
+| Touch | GT911 @ 0x5D/0x14 | I2C SDA 19, SCL 20; INT not wired, so the driver polls (`TouchController::Box3` managed GT911) |
+
+**Build and flash** it with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e crowpanel-5 -t upload -t monitor
+```
+
+Or with `idf.py -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;boards/crowpanel-5.0/sdkconfig.defaults" build`. The USB-C port reaches the S3's UART0 through a USB-UART bridge, so flashing and the serial console (115200 baud) both use it. The S3's own USB pins, GPIO 19 and 20, carry the touch I2C instead. On the v3.0 hardware revision the board also carries a PCA9557 GPIO expander (@ 0x18) that gates touch timing; this port polls touch and does not drive that expander.
+
+### First flash: what to check
+
+This port is written from Elecrow's published factory example ([CrowPanel 5.0 repository](https://github.com/Elecrow-RD/CrowPanel-5.0-HMI-ESP32-Display-800x480) at commit `fd959ac`). On the first flash:
+
+1. **Boot log:** `ILI6122 800x480 RGB panel initialized at 15000000 Hz` and `touch ready`; `parts: display ili6122-rgb, ... touch yes`.
+2. **Screen:** the mascot renders and colours are correct (amber accents, not blue). A red/blue swap means `b.lcd.rgb.swap_red_blue` in this board's `board.cpp` entry needs flipping.
+3. **Brightness:** cycle 10 → 100 in settings; brightness must rise with the number. The backlight is active-high — do not set `backlight_invert`.
+4. **Touch:** hold the screen and the listening waves appear; a swipe down cancels; hold the title bar one second for settings.
+5. **Text:** `say hello` over the console, or a paired Hermes, should render on the display.
+
+Panel timings (15 MHz PCLK, 8/4/43 and 8/4/12 porches, `pclk_active_neg`) and the pin map follow the factory `crowpanel-esp32-5.0-3.0` Arduino example at commit `fd959ac`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md). A boot smoke check passed on a real board: the panel initialization log, the GT911's ID, Wi-Fi and pairing. Rendering, colours, brightness and touch coordinates are not yet verified; see the [hardware validation table](hardware-validation.md).
+
 ## Build and flash
 
 **No toolchain needed:** the [browser installer](https://adolanium.github.io/hermes-gadget-sdk/) flashes each release's prebuilt firmware from Chrome or Edge, then sets up Wi-Fi and pairing. The release files are also on the [releases page](https://github.com/Adolanium/hermes-gadget-sdk/releases), for `esptool.py write_flash 0x0 hermes-gadget-<board>-<version>.bin`, which also erases the board's settings.
@@ -490,19 +523,46 @@ gadget> status
 | `new-session` | Start a fresh conversation (same as holding CANCEL for 2 s) |
 | `settings` / `settings close` | Open or close the local settings and hardware checks |
 | `wifi-setup` / `wifi-setup close` | Start or cancel phone setup; the start response includes temporary network credentials |
+| `wifi` / `wifi list` | The [saved Wi-Fi networks](#saved-wi-fi-networks) as `@wifi` JSON, without passwords |
+| `wifi add <ssid> [password]` | Save a network without joining it; leave out the password for an open network |
+| `wifi join <ssid>` | Move a saved network first and join it now |
+| `wifi forget <ssid>` | Remove a saved network |
+| `phone` / `phone pair` / `phone pair close` / `phone forget` | On boards with Bluetooth: phone app state, open or close pairing, or remove every paired phone ([protocol](protocol.md#phone-app-over-bluetooth)) |
 | `yes` / `no` | Answer the question on screen |
 | `reconnect` | Drop and re-open the Hermes connection |
 | `forget-key` | New device identity on next boot (re-enrollment and re-pairing) |
 | `factory-reset` | Erase the device key and all settings |
 
-The keys are `name`, `server`, `token`, `talk_mode` (`hold` or `tap`), `volume`, `brightness`, `screen_timeout` (0..3600 seconds, 0 disables it), `wifi_ssid` and `wifi_pass`. The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) saves volume, brightness, talk mode and screen timeout without a console.
+The keys are `name`, `server`, `token`, `talk_mode` (`hold` or `tap`), `volume`, `brightness`, `screen_timeout` (0..3600 seconds, 0 disables it), `battery_display` (`icon`, `percentage`, `both` or `off`), `wifi_ssid` and `wifi_pass`. The [device settings menu](using-gadget.md#device-settings-and-hardware-checks) saves volume, brightness, talk mode, battery indicator and screen timeout without a console.
+
+In the `diag` report, `i2c` lists the addresses that answered, such as `0x18`. A probe can time out while another task uses the bus, so the scan tries each address up to three times. An address that times out on every try appears as `timeout at 0x19`, and the scan continues. Four such addresses in a row end the scan with `bus stuck at` the first of them, such as `bus stuck at 0x08`. That usually means a device or a short holds SDA or SCL low.
+
+### Saved Wi-Fi networks
+
+The device keeps up to five Wi-Fi networks and joins whichever is in range, so it can move between home, an office and a phone hotspot without new setup:
+
+```
+gadget> wifi add "Home Wi-Fi" "correct horse"
+@ok wifi add
+gadget> wifi add Phone hotspot-pass
+@ok wifi add
+gadget> wifi
+@wifi {"networks":[{"ssid":"Home Wi-Fi","tested":true,"open":false},{"ssid":"Phone","tested":false,"open":false}],"max":5,"current":"Home Wi-Fi"}
+```
+
+- Put a name or password with spaces in double quotes. Inside quotes, `\"` is a quote and `\\` a backslash.
+- The list is in order: the network that last worked comes first and is tried first at startup.
+- `tested` turns true once the device has joined the network with its saved password. Saving a new password for a network clears it again. `wifi add` does not check the password, so a network saved out of range shows `false` until the device first joins it.
+- When the link drops, the device retries the same network once. If that fails too, it scans and joins the first network if the scan saw it, else the strongest saved network it saw. A network that failed twice is passed over while another saved one is in range. When the scan finds no saved network, for example because it is hidden, the device tries the next one in the list. With one saved network it never scans and retries as before.
+- `set wifi_ssid` and `set wifi_pass` work on the first network: setting a new name saves that network first and keeps the others. If five are saved, the last one is dropped. An empty `wifi_ssid` forgets the first network. [Phone setup](setup-board.md#set-up-wi-fi-with-your-phone) saves its network first the same way.
+- `factory-reset` forgets every network.
 
 Machine-readable lines start with `@`, so tools can drive a bench device. `hermes-gadget provision` is a thin wrapper over these commands.
 
 ## Power-on sequence
 
 1. **Boot:** about 1 s.
-2. **Wi-Fi:** credentials from NVS, else from menuconfig. Without credentials the device opens a temporary network for [phone setup](setup-board.md#set-up-wi-fi-with-your-phone).
+2. **Wi-Fi:** the first [saved network](#saved-wi-fi-networks), else the one from menuconfig. Without credentials the device opens a temporary network for [phone setup](setup-board.md#set-up-wi-fi-with-your-phone).
 3. **Connect:** the device opens the WebSocket to `server`, retrying 1 → 30 s with backoff.
 4. **Authenticate:** it enrolls its key on first contact and proves it with an HMAC afterwards.
 5. **Pair or ready:** an unpaired device shows a pairing code (approve with `hermes gadget pair`); a paired one goes to **Ready**.
@@ -510,6 +570,6 @@ Machine-readable lines start with `@`, so tools can drive a bench device. `herme
 ## Known limits of the reference firmware
 
 - Push-to-talk or tap with energy VAD. There is no wake word; the protocol leaves room for one (`audio.start.mode`).
-- Wi-Fi setup works over USB or a temporary password-protected network. There is no BLE setup or dedicated phone app.
+- Wi-Fi setup works over USB or a temporary password-protected network. A Bluetooth link for a phone app exists, but no board enables it yet: each board turns it on after it passes the [Bluetooth checks](hardware-validation.md#bluetooth). There is no phone app in this repository.
 - Firmware updates are authorized with the device key, but images aren't signed: the bootloader runs whatever a trusted Hermes installs. Secure Boot isn't enabled.
 - The text font is ASCII only; the host folds other characters.

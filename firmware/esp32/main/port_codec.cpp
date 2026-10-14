@@ -11,6 +11,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/task.h"
+#include "mic_power.hpp"
 #include "speaker_queue.hpp"
 #include "ws185.hpp"
 
@@ -145,6 +146,7 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
     esp_codec_dev_set_out_mute(out_, true);  // unmuted while something plays
   }
   if (in_) esp_codec_dev_set_in_gain(in_, cfg.mic_gain_db);
+  mic_link_ = {in_ && in_ != out_, rx_, fs, cfg.mic_gain_db};
   ESP_LOGI(TAG, "codecs: speaker %s, microphones %s (%s)", out_ ? "ready" : "missing", in_ ? "ready" : "missing",
            shared ? "es8311 analog" : "es7210");
   return out_ || in_;
@@ -153,15 +155,16 @@ bool CodecAudio::begin(const CodecAudioConfig& cfg, i2c_master_bus_handle_t bus)
 // --------------------------------------------------------------------------
 // Microphone
 
-bool CodecMic::begin(esp_codec_dev_handle_t dev, bool rmnm) {
+bool CodecMic::begin(esp_codec_dev_handle_t dev, bool rmnm, const CodecAudio::MicLink& link) {
   if (!dev) return false;
   dev_ = dev;
+  link_ = link;
   rmnm_ = rmnm;
   if (rmnm) {
     raw_ = static_cast<int16_t*>(heap_caps_malloc(kMicChunk * 4 * sizeof(int16_t), MALLOC_CAP_8BIT));
     if (!raw_) return false;
   }
-  xTaskCreate(&CodecMic::task, "hg-mic", 4096, this, 6, nullptr);
+  xTaskCreate(&CodecMic::task, "hg-mic", 4096, this, 6, &task_);
   return true;
 }
 
@@ -172,24 +175,47 @@ bool CodecMic::start(uint32_t sample_rate) {
     return false;
   }
   capturing_ = true;
+  if (task_) xTaskNotifyGive(task_);  // wakes a powered-down mic task
   return true;
 }
 
 void CodecMic::task(void* arg) {
   auto* self = static_cast<CodecMic*>(arg);
   int16_t pcm[kMicChunk];
-  int16_t* raw = self->raw_;
-  for (;;) {
-    // Read continuously so a capture starts with fresh samples, not a stale DMA backlog.
-    void* data = self->rmnm_ ? static_cast<void*>(raw) : static_cast<void*>(pcm);
-    const size_t bytes = self->rmnm_ ? kMicChunk * 4 * sizeof(int16_t) : sizeof(pcm);
-    if (esp_codec_dev_read(self->dev_, data, bytes) != ESP_CODEC_DEV_OK) {
-      vTaskDelay(pdMS_TO_TICKS(10));
-      continue;
+  // The microphone ADC runs only while something records (hg::MicPower).
+  struct Ops {
+    CodecMic* mic;
+    bool power_up() {
+      esp_codec_dev_sample_info_t fs = mic->link_.format;
+      if (esp_codec_dev_open(mic->dev_, &fs) != ESP_CODEC_DEV_OK) {
+        ESP_LOGW(TAG, "microphone did not start");
+        return false;
+      }
+      esp_codec_dev_set_in_gain(mic->dev_, mic->link_.gain_db);
+      return true;
     }
-    if (self->rmnm_) hg::ws185_mono(raw, pcm, kMicChunk);
-    if (self->capturing_) events::post(EventType::Mic, pcm, sizeof(pcm));
-  }
+    void power_down() { esp_codec_dev_close(mic->dev_); }
+    void drain() {
+      // The receive channel kept running for the speaker; skip its stale buffers.
+      if (!mic->link_.rx) return;
+      uint8_t scratch[512];
+      size_t got = 0;
+      for (int i = 0; i < 64; ++i)
+        if (i2s_channel_read(mic->link_.rx, scratch, sizeof(scratch), &got, 0) != ESP_OK || !got) break;
+    }
+    bool read(int16_t* chunk) {
+      void* data = mic->rmnm_ ? static_cast<void*>(mic->raw_) : static_cast<void*>(chunk);
+      const size_t bytes = mic->rmnm_ ? kMicChunk * 4 * sizeof(int16_t) : kMicChunk * sizeof(int16_t);
+      if (esp_codec_dev_read(mic->dev_, data, bytes) != ESP_CODEC_DEV_OK) return false;
+      if (mic->rmnm_) hg::ws185_mono(mic->raw_, chunk, kMicChunk);
+      return true;
+    }
+    void deliver(const int16_t* chunk) { events::post(EventType::Mic, chunk, kMicChunk * sizeof(int16_t)); }
+    void wait() { ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000)); }
+    void pause() { vTaskDelay(pdMS_TO_TICKS(10)); }
+  } ops{self};
+  hg::MicPower power(self->link_.switchable);
+  for (;;) power.turn(self->capturing_.load(), ops, pcm);
 }
 
 // --------------------------------------------------------------------------
@@ -214,8 +240,26 @@ bool CodecSpeaker::begin(esp_codec_dev_handle_t dev, bool stereo32, int pa) {
     stereo_ = static_cast<int32_t*>(heap_caps_malloc(kSpeakerChunk * 2 * sizeof(int32_t), MALLOC_CAP_8BIT));
     if (!stereo_) return false;
   }
-  xTaskCreate(&CodecSpeaker::task, "hg-spk", 4096, this, 7, nullptr);
+  xTaskCreate(&CodecSpeaker::task, "hg-spk", 4096, this, 7, &task_);
   return true;
+}
+
+void CodecSpeaker::power_down() {
+  if (!dev_ || !can_power_down_ || !powered_ || busy()) return;
+  esp_codec_dev_close(dev_);
+  powered_ = false;
+}
+
+void CodecSpeaker::power_up() {
+  if (!dev_ || powered_) return;
+  esp_codec_dev_sample_info_t fs = format_;
+  if (esp_codec_dev_open(dev_, &fs) != ESP_CODEC_DEV_OK) {
+    ESP_LOGW(TAG, "speaker did not start");
+    return;
+  }
+  esp_codec_dev_set_out_vol(dev_, volume_);
+  esp_codec_dev_set_out_mute(dev_, true);  // unmuted while something plays
+  powered_ = true;
 }
 
 bool CodecSpeaker::begin(uint32_t sample_rate) {
@@ -226,6 +270,7 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
     return false;
   }
   abort();
+  power_up();  // a reply can start before the doze that powered it down ends
   open_ = true;
   draining_ = false;
   return true;
@@ -234,23 +279,21 @@ bool CodecSpeaker::begin(uint32_t sample_rate) {
 void CodecSpeaker::write(const int16_t* samples, size_t count) {
   if (!open_) return;
   size_t bytes = count * sizeof(int16_t);
-  // Whole-frame drop: a nonblocking xStreamBufferSend can partial-write when
-  // the ring is nearly full, and a partial frame shifts every later sample pair
-  // by one byte => full-scale static. Drop the whole frame instead; never
-  // misaligns. Cumulative drop accounting for stream-end logging.
-  if (xStreamBufferSpacesAvailable(buffer_) < bytes) {
-    drop_bytes_ += bytes;
+  // The app task is the only writer, so the room can only grow before the send.
+  // Whole samples only: a partial one would shift every later sample by a byte.
+  size_t fit = hg::whole_sample_bytes(bytes, xStreamBufferSpacesAvailable(buffer_));
+  size_t sent = xStreamBufferSend(buffer_, samples, fit, 0);
+  if (task_) xTaskNotifyGive(task_);  // an idle speaker task waits for this
+  if (sent < bytes) {
+    // Counted for the stream-end log; warn at most every 2 s.
+    drop_bytes_ += bytes - sent;
     static int64_t last_drop_log = 0;
     int64_t now = esp_timer_get_time() / 1000;
     if (now - last_drop_log > 2000) {
       last_drop_log = now;
-      ESP_LOGW(TAG, "playback buffer full, dropped %u B cumulative (ring avail %u)",
-               static_cast<unsigned>(drop_bytes_.load()),
-               static_cast<unsigned>(xStreamBufferSpacesAvailable(buffer_)));
+      ESP_LOGW(TAG, "playback buffer full, dropped %u B cumulative", static_cast<unsigned>(drop_bytes_.load()));
     }
-    return;
   }
-  xStreamBufferSend(buffer_, samples, bytes, 0);
 }
 
 void CodecSpeaker::end() {
@@ -266,6 +309,7 @@ void CodecSpeaker::abort() {
   draining_ = false;
   if (pa_) pa_->abort();
   flush_ = true;
+  if (task_) xTaskNotifyGive(task_);
 }
 
 bool CodecSpeaker::busy() const {
@@ -273,7 +317,8 @@ bool CodecSpeaker::busy() const {
 }
 
 void CodecSpeaker::set_volume(uint8_t percent) {
-  if (dev_) esp_codec_dev_set_out_vol(dev_, percent > 100 ? 100 : percent);
+  volume_ = percent > 100 ? 100 : percent;
+  if (dev_ && powered_) esp_codec_dev_set_out_vol(dev_, volume_);
 }
 
 void CodecSpeaker::task(void* arg) {
@@ -343,7 +388,13 @@ void CodecSpeaker::task(void* arg) {
         stream_bytes = 0;
         playing = false;
       }
-      if (pa) vTaskDelay(pdMS_TO_TICKS(20));
+      // Idle on a light-sleep board: wait for write()/abort() instead of waking
+      // every 20 ms, so a doze can light-sleep. Draining, and other boards, keep
+      // the short poll.
+      if (pa) {
+        if (self->can_power_down_ && !playing) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(1000));
+        else vTaskDelay(pdMS_TO_TICKS(20));
+      }
       continue;
     }
     if (!playing) {

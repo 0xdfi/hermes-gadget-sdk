@@ -77,11 +77,15 @@ For an active-low GPIO backlight driven by `SpiDisplay`, set `b.lcd.backlight_in
 
 Set `Hal::power` only after the board's power driver starts successfully. `Power::read()` returns current readings or `nullopt` on a failed read. Each measurement is optional; omit a percentage when the hardware has no fuel gauge. `power_off()` requests a local shutdown and reports whether the request succeeded. The settings menu asks for a second selection before calling it.
 
+The AXP2101's fuel gauge can read well off on a given cell. A board can set `BoardConfig::battery_curve` and `battery_charge_curve` to curves measured on its own cell (`firmware/drivers/battery_curve.hpp`, with the AMOLED-1.75C's as the example): the driver then reports the percentage from the voltage on those curves instead of the gauge.
+
+While the screen is off, nothing is happening and `Power::external_power()` reports battery power, the app calls `System::set_dozing(true)`, and `set_dozing(false)` before it draws again. The ESP32 port lets the chip light-sleep then only on boards that set `BoardConfig::light_sleep` (the AMOLED-1.75C). Such a board also needs `CONFIG_PM_ENABLE` and `CONFIG_FREERTOS_USE_TICKLESS_IDLE` in its `sdkconfig.defaults`, and its panel, touch-reset, amplifier and I2C pins must hold their level through sleep: `keep_pins_through_sleep()` in `main.cpp` does that for the AMOLED panel's pins.
+
 The AXP2101 implementation is in `firmware/drivers/axp2101.cpp`, with the ESP32 I2C connection in `port_power.cpp`. It leaves charger settings and supply rails unchanged. The core reports unavailable sensor values as JSON `null` to replace earlier readings at the gateway.
 
 CoreS3 has a separate `CoreS3Control` in `firmware/drivers/cores3.cpp`. It enables the required audio supplies, boost and AW9523 reset outputs before display, touch and audio initialization. Its masked writes preserve unrelated settings. `SpiDisplay::board_backlight` routes brightness through DLDO1 on this board. Native tests cover supply values, reset timing, preservation of other registers, brightness and failed I2C access. `CodecAudioConfig::speaker` selects the AW88298 driver for CoreS3; other profiles keep ES8311.
 
-A display that advertises `has_backlight` must accept zero percent to turn dark. `screen_timeout` dims and then darkens an idle display while keeping the device connected. Raw touch drivers should use `TouchGestures`, which consumes the first touch when waking. Button input through `App::on_button` does the same.
+A display that advertises `has_backlight` must accept zero percent to turn dark. An OLED or AMOLED driver sets `emissive`, so the UI draws its background true black and leaves those pixels unlit. `screen_timeout` dims and then darkens an idle display while keeping the device connected. Raw touch drivers should use `TouchGestures`, which consumes the first touch when waking. Button input through `App::on_button` does the same.
 
 ## Audio through a codec chip
 

@@ -62,7 +62,7 @@ Phone setup configures a board that already runs the firmware. A board without a
 4. Choose **Check connection and save**. The board allows up to 30 seconds to connect. If your phone disconnects during the check, rejoin the gadget's network and reload the page.
 5. After the page reports success, reconnect your phone to its usual network. The gadget connects to Hermes; approve its pairing code if this is its first setup.
 
-The board saves the new Wi-Fi credentials only after it receives an IP address on that network. A failed attempt restores the previous settings and lets you try again. This check confirms Wi-Fi connectivity; Hermes must also be running at the address you entered. Pairing and device identity stay in place.
+The board saves the new Wi-Fi credentials only after it receives an IP address on that network. It saves the network first and keeps the others it knows, up to five. A failed attempt restores the previous settings and lets you try again. To save networks that are out of range, such as a phone hotspot, use the [console's `wifi` commands](hardware.md#saved-wi-fi-networks). This check confirms Wi-Fi connectivity; Hermes must also be running at the address you entered. Pairing and device identity stay in place.
 
 The temporary network closes ten seconds after success, after ten minutes, or when you press CANCEL or swipe down on the gadget. If the new network overlaps the setup subnet, setup closes immediately after saving and the phone may not show a success message. Setup uses a local page and needs no phone app. Saved Wi-Fi passwords are never sent back to the page. The temporary password is absent from diagnostics and is discarded when setup closes.
 

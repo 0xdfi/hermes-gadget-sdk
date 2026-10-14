@@ -1,9 +1,9 @@
 #include "hg/setup.hpp"
 
-#include <algorithm>
 #include <cstring>
 
 #include "hg/json.hpp"
+#include "hg/wifi_networks.hpp"
 
 namespace hg {
 namespace {
@@ -61,15 +61,8 @@ bool parse_wifi_setup(std::string_view body, std::string_view nonce, WifiCredent
   const auto& ssid = form["ssid"].as_string();
   const auto& password = form["password"].as_string();
   const auto& server = form["server"].as_string();
-  if (ssid.empty() || ssid.size() > 32 || ssid.find('\0') != std::string::npos) {
-    error = "Network name must contain 1..32 bytes"; return false;
-  }
-  const bool hex_key = password.size() == 64 && password.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos;
-  if ((!password.empty() && !hex_key && (password.size() < 8 || password.size() > 63)) ||
-      std::any_of(password.begin(), password.end(), [](unsigned char c) { return c < 0x20 || c > 0x7e; })) {
-    error = "Use an 8..63 character Wi-Fi password, a 64-digit hex key, or leave it empty for an open network";
-    return false;
-  }
+  error = wifi_network_error(ssid, password);
+  if (!error.empty()) return false;
   if (!server_url(server)) { error = "Enter a ws:// or wss:// gateway address with a host"; return false; }
   WifiCredentials valid;
   std::memcpy(valid.ssid, ssid.data(), ssid.size());

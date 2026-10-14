@@ -225,6 +225,22 @@ mac = HMAC-SHA256(key, "hermes-gadget/v1|ota|" + device_id + "|" + nonce + "|" +
 - Either side may also send `ping`.
 - Either side treats 3 × `heartbeat_s` without any inbound frame as a dead connection.
 
+## Phone app over Bluetooth
+
+Boards whose firmware enables Bluetooth (none yet; see [hardware validation](hardware-validation.md#bluetooth)) also accept a phone app over Bluetooth LE. It is a local channel to the device's console, not part of the Hermes protocol: the phone sends the same commands as the [USB console](hardware.md#serial-console) and gets the same `@` replies, so an app can set up Wi-Fi (`set wifi_ssid`, `set wifi_pass`), change settings and read `status`.
+
+| | UUID | Properties |
+|---|---|---|
+| Service | `dc530001-7a2a-400f-b8f6-e87185576192` | Primary, advertised |
+| Command | `dc530002-7a2a-400f-b8f6-e87185576192` | Write with response; needs an encrypted, authenticated link |
+| Reply | `dc530003-7a2a-400f-b8f6-e87185576192` | Notify |
+
+- **Pairing:** the phone must pair before writing. The device accepts pairing only while **Phone app** pairing is open (device settings, or `phone pair`; two minutes). It shows a six-digit passkey, which the phone's user types: LE Secure Connections with passkey entry. The device refuses pairing outside the window, refuses Just Works pairing, and keeps up to three phones, forgetting the oldest. `phone forget` removes them all and drops a connected phone.
+- **Advertising:** the device advertises its name and the service while pairing is open, about once a second while a phone is paired, and not at all otherwise. One phone connects at a time.
+- **Commands:** subscribe to Reply, then write one console line (UTF-8, up to 256 bytes) to Command. Wait for its reply before writing the next; a third pending line is refused with "insufficient resources".
+- **Replies:** the reply text arrives in notifications sized to the link's MTU, ending with a single `0x00` byte. `@error device busy` means the device didn't answer within 3 s.
+- **State:** `status` includes `"phone": {"paired": 1, "connected": true, "pairing": false}` on these boards; `phone` alone returns the same object as `@phone {...}`.
+
 ## Versioning
 
 - `proto` is a single integer, and a server rejects versions it does not speak.
