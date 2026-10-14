@@ -307,6 +307,15 @@ class AmoledDisplay final : public hg::Display {
   bool panel_on_ = true;
 };
 
+// The GPIO interrupt service, installed once for every driver that adds a pin handler: a second
+// install is refused with an error line.
+inline bool gpio_isr_service() {
+  static std::once_flag once;
+  static esp_err_t err = ESP_FAIL;
+  std::call_once(once, [] { err = gpio_install_isr_service(0); });
+  return err == ESP_OK || err == ESP_ERR_INVALID_STATE;  // (installed by someone else: there to use)
+}
+
 // Logs a failed ESP-IDF call. A display's begin() returns false on one, so the
 // gadget runs without a screen instead of rebooting in a loop.
 inline bool esp_ok(esp_err_t err, const char* tag, const char* what) {
@@ -428,6 +437,10 @@ class TouchInput {
   static void task(void* arg);
   bool read_touch(TouchSample& out);
   bool begin_box_touch(i2c_master_bus_handle_t bus);
+  void gate_on_int();
+  static void on_int(void* arg);
+  bool may_read(bool was_touching);
+  void wait(uint32_t ms);
   bool read_key(bool& pressed);
   bool sample_encoder(int& direction);
   TouchConfig touch_{};
@@ -435,6 +448,9 @@ class TouchInput {
   i2c_master_dev_handle_t touch_dev_ = nullptr;
   i2c_master_dev_handle_t key_dev_ = nullptr;
   esp_lcd_touch_handle_t managed_touch_ = nullptr;
+  bool int_gated_ = false;                // FT5x06 with INT: read after an edge or with a finger down
+  std::atomic<bool> int_pending_{false};  // an edge since the last read
+  void* task_ = nullptr;                  // the touch task, woken by an edge
   gpio_num_t encoder_a_ = GPIO_NUM_NC;
   gpio_num_t encoder_b_ = GPIO_NUM_NC;
   uint8_t encoder_state_ = 0;

@@ -204,6 +204,7 @@ BoardConfig make() {
   b.touch.controller = TouchController::Ft5x06;  // the FT3168 sends the same report
   b.touch.addr = 0x38;
   b.touch.rst = 9;
+  b.touch.int_gpio = 38;  // pulses low on a report: reads follow it, and a dozing chip is left alone
   b.touch.width = 410;
   b.touch.height = 502;
   b.touch.offset_y = 8;     // touch reports glass rows; the UI starts at row 8

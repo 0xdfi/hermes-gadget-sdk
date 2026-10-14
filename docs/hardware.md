@@ -345,7 +345,7 @@ Board option `esp32s3-touch-amoled-206`, for Waveshare's 2.06" AMOLED touch watc
 | Part | Chip | Connection |
 |---|---|---|
 | Display | CO5300, QSPI | CS 12, SCLK 11, D0–D3 4/5/6/7, reset 8; column offset 22; tearing-effect output on 13 (unused) |
-| Touch | FT3168 | I2C 0x38, read with the FT5x06 driver; reset 9; INT 38 unused (polled) |
+| Touch | FT3168 | I2C 0x38, read with the FT5x06 driver; reset 9; INT 38, read on its falling edge (the idle chip dozes, refuses reads and reports its waking touch only briefly) |
 | Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 16, BCLK 41, WS 45, DOUT 40; NS4150B amplifier enable 46 |
 | Microphones | ES7210 | I2C 0x40; two microphones on MIC1/MIC2 (MIC3 is the speaker loopback, unused); I2S DIN 42 |
 | Power | AXP2101 | I2C 0x34; battery/USB readings, PWR short press and local power-off; charging and rails keep their defaults |
@@ -372,7 +372,7 @@ The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the s
 
 ### First flash: what to check
 
-1. **Boot log:** `CO5300 410x486 ready`, `codecs: speaker ready, microphones ready` and `touch ready, key off, encoder off`. In the `diag` report, `i2c` should include `0x18` (ES8311), `0x34` (AXP2101), `0x38` (FT3168), `0x40` (ES7210), `0x51` (PCF85063) and `0x6b` (QMI8658).
+1. **Boot log:** `CO5300 410x486 ready`, `codecs: speaker ready, microphones ready`, `touch read on INT (GPIO 38)` and `touch ready, key off, encoder off`. In the `diag` report, `i2c` should include `0x18` (ES8311), `0x34` (AXP2101), `0x40` (ES7210), `0x51` (PCF85063) and `0x6b` (QMI8658). `0x38` (FT3168) is listed only while the touch chip is awake: it dozes after a few idle seconds and doesn't answer then.
 2. **Screen:** the mascot is upright and not mirrored; text is white on dark slate bars, and the link dot is green once online. A stripe at one edge means the column offset is off. Text clipped by a rounded corner means `corner_inset` needs raising.
 3. **Touch:** holding the screen shows the listening waves, and a swipe *down* cancels. If the coordinates are mirrored, flip `touch.mirror_x`/`mirror_y` in `board.cpp`. If they are 8 rows off, adjust `touch.offset_y`.
 4. **Microphones:** say something. The waves move with your voice and the transcript is right; in tap mode, a sentence spoken at arm's length starts and ends the recording.
