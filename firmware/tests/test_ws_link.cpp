@@ -91,18 +91,23 @@ TEST("ws: the old client's loss doesn't end the new connection") {
 // --- The send queue ----------------------------------------------------------
 
 TEST("ws: messages leave the reserved slots free") {
-  CHECK(hg::ws::may_queue_message(hg::ws::kTxReserved + 1));
-  CHECK(!hg::ws::may_queue_message(hg::ws::kTxReserved));
-  CHECK(!hg::ws::may_queue_message(0));
+  CHECK(hg::ws::may_queue_message(hg::ws::kTxReserved + 1, hg::ws::kText));
+  CHECK(!hg::ws::may_queue_message(hg::ws::kTxReserved, hg::ws::kText));
+  CHECK(!hg::ws::may_queue_message(0, hg::ws::kText));
 }
 
-TEST("ws: a full queue of messages still has room to close") {
-  size_t free_slots = hg::ws::kTxMessages + hg::ws::kTxReserved, queued = 0;
-  while (hg::ws::may_queue_message(free_slots)) {
+TEST("ws: a queue full of audio still takes the messages that end a recording, and a close") {
+  size_t free_slots = hg::ws::kTxMessages + hg::ws::kTxReserved, frames = 0, texts = 0;
+  while (hg::ws::may_queue_message(free_slots, hg::ws::kBinary)) {
     --free_slots;
-    ++queued;
+    ++frames;
   }
-  CHECK_EQ(queued, hg::ws::kTxMessages);
+  CHECK_EQ(frames, hg::ws::kTxMessages - hg::ws::kTxControl);
+  while (hg::ws::may_queue_message(free_slots, hg::ws::kText)) {
+    --free_slots;
+    ++texts;
+  }
+  CHECK_EQ(texts, hg::ws::kTxControl);
   CHECK(free_slots >= 1u);  // close() waits for a slot; this one is always there
 }
 
