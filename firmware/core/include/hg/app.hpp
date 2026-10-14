@@ -110,6 +110,9 @@ class App {
   bool start_wifi_setup();
   void close_wifi_setup();
   bool wifi_setup_open() const { return !wifi_setup_text_.empty(); }
+  // A turn is under way: listening, waiting for a reply, or responding, which lasts until the
+  // reply has finished playing. The port keeps Wi-Fi at full power until it ends.
+  bool in_turn() const { return mode_ != Mode::Idle; }
   // These run on the app task. Start returns private, on-screen instructions.
   std::function<std::string()> on_wifi_setup;
   std::function<void()> on_wifi_setup_close;

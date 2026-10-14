@@ -24,6 +24,7 @@
 #include "speaker_pa.hpp"
 #include "tag_scanner.hpp"
 #include "wifi_pick.hpp"
+#include "wifi_power.hpp"
 #include "wifi_retry.hpp"
 #include "ws_link.hpp"
 #include "driver/i2c_master.h"
@@ -543,7 +544,8 @@ class Wifi {
   void tick(hg::App& app, uint32_t now);
   // Retry at once instead of at the next backoff slot (the user is back).
   void retry_now();
-  // Whether the device runs on its battery: the retry backoff and modem sleep apply only then.
+  // Whether the device runs on its battery: the retry backoff and modem sleep (outside a turn)
+  // apply only then.
   std::function<bool()> on_battery;
   std::string start_setup();
   void stop_setup();
@@ -571,9 +573,8 @@ class Wifi {
   esp_pm_lock_handle_t attempt_lock_ = nullptr;  // light sleep would stall an attempt
   bool attempt_held_ = false;
   void hold_while_attempting();
-  int power_save_ = -1;  // -1 not applied yet, else whether modem sleep is on
-  uint32_t power_save_checked_at_ = 0;
-  void apply_power_save(uint32_t now);
+  hg::WifiPowerSave power_save_;
+  void apply_power_save(uint32_t now, bool in_turn);
   hg::WifiCredentials candidate_{};
   httpd_handle_t http_ = nullptr;
   std::mutex setup_mutex_;
