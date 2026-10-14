@@ -292,9 +292,11 @@ void App::on_transport_closed(std::string_view reason) {
   update_model();
 }
 
-void App::send(const json::Value& msg) {
+bool App::send(const json::Value& msg) {
   std::string text = msg.dump();
-  if (!hal_.transport->send_text(text)) log(LogLevel::Warn, "send failed");
+  if (hal_.transport->send_text(text)) return true;
+  log(LogLevel::Warn, "send failed");
+  return false;
 }
 
 void App::send_hello() {
@@ -842,6 +844,7 @@ void App::start_listening(bool hands_free) {
   hands_free_ = hands_free;
   mic_stream_ = static_cast<uint8_t>(mic_stream_ % 250 + 1);
   mic_seq_ = 0;
+  mic_unsent_ = 0;
   request_id_ = next_id('a');
   level_ = 0;
   Vad::Config vc;
@@ -866,7 +869,17 @@ void App::finish_listening() {
   if (hal_.mic) hal_.mic->stop();
   json::Value end = proto::message("audio.end");
   end.set("id", request_id_).set("stream", mic_stream_).set("duration_ms", now() - mode_since_);
-  send(end);
+  if (mic_unsent_)
+    log(LogLevel::Warn, "recording: " + std::to_string(mic_unsent_) + " of " + std::to_string(mic_seq_) +
+                            " audio frames not sent, the link couldn't keep up");
+  if (!send(end)) {
+    // Hermes would wait for the rest of the recording and never answer.
+    mode_ = Mode::Idle;
+    mode_since_ = now();
+    notice_ = "Couldn't send the recording";
+    notice_until_ = now() + 8000;
+    return;
+  }
   mode_ = Mode::Thinking;
   mode_since_ = now();
   last_turn_rx_ = now();
@@ -924,7 +937,7 @@ void App::on_mic_samples(const int16_t* samples, size_t count) {
     frame_buf_.resize(proto::kBinaryHeader + n * 2);
     proto::write_binary_header(frame_buf_.data(), proto::Channel::Audio, mic_stream_, mic_seq_++);
     std::memcpy(frame_buf_.data() + proto::kBinaryHeader, samples + off, n * 2);
-    hal_.transport->send_binary(frame_buf_.data(), frame_buf_.size());
+    if (!hal_.transport->send_binary(frame_buf_.data(), frame_buf_.size())) ++mic_unsent_;
     off += n;
   }
   if (hands_free_) {

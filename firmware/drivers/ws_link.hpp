@@ -30,15 +30,21 @@ class Generations {
   std::atomic<uint32_t> lost_{0};
 };
 
-// The send queue holds messages plus a few slots only "close this client" may
-// use, so leaving a connection never waits for a slow link to drain.
-constexpr size_t kTxMessages = 64;
-constexpr size_t kTxReserved = 4;
-inline bool may_queue_message(size_t free_slots) { return free_slots > kTxReserved; }
-
 constexpr uint8_t kText = 0x1;
 constexpr uint8_t kBinary = 0x2;
 constexpr uint8_t kClose = 0xFF;  // not a WebSocket opcode: close and destroy the client
+
+// The send queue holds messages plus a few slots only "close this client" may
+// use, so leaving a connection never waits for a slow link to drain. Of the
+// message slots, the last few are for text: when a slow uplink fills the queue
+// with microphone audio, the frames are refused first, so a control message such
+// as audio.end, which ends the recording, still gets through.
+constexpr size_t kTxMessages = 64;
+constexpr size_t kTxReserved = 4;
+constexpr size_t kTxControl = 8;
+inline bool may_queue_message(size_t free_slots, uint8_t opcode) {
+  return free_slots > kTxReserved + (opcode == kBinary ? kTxControl : 0);
+}
 
 // Every network wait has a limit. The library's own esp_websocket_client_close()
 // waits for its close frame without one and froze the app on a dead link.

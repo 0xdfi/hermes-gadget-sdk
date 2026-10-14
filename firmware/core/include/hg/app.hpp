@@ -220,7 +220,7 @@ class App {
   void connect_now();
   void schedule_reconnect();
   void drop_session(std::string_view reason);
-  void send(const json::Value& msg);
+  bool send(const json::Value& msg);
   void send_hello();
   bool can_talk() const;
   void start_listening(bool hands_free);
@@ -328,6 +328,7 @@ class App {
   uint32_t mode_since_ = 0;
   bool hands_free_ = false;
   uint8_t mic_stream_ = 0;
+  uint32_t mic_unsent_ = 0;  // frames of this recording the transport refused
   uint16_t mic_seq_ = 0;
   std::string request_id_;
   std::string active_turn_;

@@ -90,7 +90,7 @@ void WsTransport::close() {
 
 bool WsTransport::enqueue(uint8_t opcode, const void* data, size_t len) {
   if (!client_ || !esp_websocket_client_is_connected(client_)) return false;
-  if (!hg::ws::may_queue_message(uxQueueSpacesAvailable(tx_))) return false;  // the link isn't keeping up
+  if (!hg::ws::may_queue_message(uxQueueSpacesAvailable(tx_), opcode)) return false;  // the link isn't keeping up
   auto* copy = static_cast<uint8_t*>(heap_caps_malloc(len ? len : 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (!copy) copy = static_cast<uint8_t*>(malloc(len ? len : 1));
   if (!copy) return false;
