@@ -329,11 +329,13 @@ void CodecSpeaker::task(void* arg) {
   bool playing = false;
   int64_t stream_t0 = 0;
   uint64_t stream_bytes = 0;
+  hg::SpeakerUnderruns gaps;
   for (;;) {
     if (self->flush_.exchange(false)) {
       stream_t0 = 0;
       stream_bytes = 0;
       self->drop_bytes_ = 0;
+      gaps.finish();  // an aborted stream isn't reported
       if (pa) {
         // abort() already emptied the queue and turned the amplifier off.
         esp_codec_dev_set_out_mute(self->dev_, true);
@@ -346,6 +348,7 @@ void CodecSpeaker::task(void* arg) {
     size_t got = pa ? pa->receive(chunk, sizeof(chunk), generation)
                     : xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
+      if (playing && self->open_) gaps.ran_dry(speaker_now_ms());
       if (playing && !self->open_) {
         // The ring is empty but the last real audio may still sit in the I2S DMA
         // ring (esp_codec_dev_write/i2s_channel_write return once queued, not once
@@ -375,13 +378,15 @@ void CodecSpeaker::task(void* arg) {
         self->draining_ = false;  // busy() stays true until the tail is played and muted
         if (errs) ESP_LOGW(TAG, "spk tail drain: %d/3 writes failed (rc of first=%d), tail may clip", errs, first_rc);
         if (pa) pa->disable();
-        int64_t elapsed = stream_t0 ? esp_timer_get_time() / 1000 - stream_t0 : 0;
-        ESP_LOGW(TAG, "spk stream end: %lld B played, %u B dropped, in %lld ms (%.2f B/ms, kRate=%u => %.2f)",
-                 static_cast<long long>(stream_bytes),
-                 static_cast<unsigned>(self->drop_bytes_.exchange(0)),
+        // One line per finished stream: underruns (speaker_underruns.hpp), then
+        // what played and what overflowed. ~1.00x means it played in real time.
+        const auto t = gaps.finish();
+        const int64_t elapsed = stream_t0 ? esp_timer_get_time() / 1000 - stream_t0 : 0;
+        ESP_LOGI(TAG, "playback ended: %u underruns, %u ms in total, longest %u ms; %llu B played, %u B dropped, "
+                 "in %lld ms (%.2fx real time)",
+                 static_cast<unsigned>(t.count), static_cast<unsigned>(t.total_ms), static_cast<unsigned>(t.longest_ms),
+                 static_cast<unsigned long long>(stream_bytes), static_cast<unsigned>(self->drop_bytes_.exchange(0)),
                  static_cast<long long>(elapsed),
-                 elapsed > 0 ? static_cast<double>(stream_bytes) / elapsed : 0.0,
-                 static_cast<unsigned>(CodecAudio::kRate),
                  elapsed > 0 ? static_cast<double>(stream_bytes) / elapsed /
                      (CodecAudio::kRate * sizeof(int16_t) / 1000.0) : 0.0);
         stream_t0 = 0;
@@ -397,6 +402,7 @@ void CodecSpeaker::task(void* arg) {
       }
       continue;
     }
+    gaps.resumed(speaker_now_ms());
     if (!playing) {
       esp_codec_dev_set_out_mute(self->dev_, false);
       playing = true;

@@ -29,7 +29,8 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
   void random_bytes(uint8_t* out, size_t len) override {
     for (size_t i = 0; i < len; ++i) out[i] = static_cast<uint8_t>(i);
   }
-  void log(hg::LogLevel, std::string_view) override {}
+  std::vector<std::string> logs;
+  void log(hg::LogLevel, std::string_view message) override { logs.emplace_back(message); }
 
   // Transport
   std::string url;
@@ -40,12 +41,15 @@ struct FakeHal : hg::Display, hg::AudioIn, hg::AudioOut, hg::Transport, hg::Stor
     url = u;
     ++connects;
   }
+  bool refuse_text = false, refuse_binary = false;  // the send queue is full
   bool send_text(std::string_view text) override {
+    if (refuse_text) return false;
     Value v;
     if (hg::json::parse(text, v)) sent.push_back(v);
     return true;
   }
   bool send_binary(const uint8_t* data, size_t len) override {
+    if (refuse_binary) return false;
     sent_binary.emplace_back(data, data + len);
     return true;
   }
@@ -371,6 +375,63 @@ TEST("app: a reply that arrives on its own is a turn while it plays, and a lost 
   r.app.on_transport_closed("gone");
   r.advance(200);
   CHECK(!r.app.in_turn());
+}
+
+TEST("app: microphone frames the link refused are counted when the recording ends") {
+  Rig r;
+  r.bring_online(true);
+  r.app.on_button(hg::Button::Talk, true);
+  std::vector<int16_t> pcm(640, 1000);  // one 40 ms frame
+  for (int i = 0; i < 10; ++i) {
+    r.fake.refuse_binary = i >= 4 && i < 7;
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(40);
+  }
+  r.fake.logs.clear();
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.fake.last("audio.end") != nullptr);
+  bool counted = false;
+  for (const auto& l : r.fake.logs) counted |= l.find("recording: 3 of 10 audio frames not sent") != std::string::npos;
+  CHECK(counted);
+
+  // The next recording starts from zero and, with every frame sent, logs nothing.
+  r.server(R"({"type":"turn.end","turn":"t","outcome":"success"})");
+  r.advance(7000);
+  r.app.on_button(hg::Button::Talk, true);
+  r.fake.refuse_binary = false;
+  for (int i = 0; i < 10; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(40);
+  }
+  r.fake.logs.clear();
+  r.app.on_button(hg::Button::Talk, false);
+  for (const auto& l : r.fake.logs) CHECK(l.find("recording:") == std::string::npos);
+}
+
+TEST("app: a recording whose end can't be sent says so instead of waiting for a reply") {
+  Rig r;
+  r.bring_online(true);
+  r.app.on_button(hg::Button::Talk, true);
+  std::vector<int16_t> pcm(1600, 1000);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.fake.refuse_text = true;
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.screen() != hg::Screen::Thinking);
+  CHECK(!r.app.in_turn());  // the radio may sleep again; nothing is coming
+  CHECK_EQ(r.app.model().detail, std::string("Couldn't send the recording"));
+  // The link recovers: the next recording works as usual.
+  r.fake.refuse_text = false;
+  r.advance(9000);
+  r.app.on_button(hg::Button::Talk, true);
+  for (int i = 0; i < 6; ++i) {
+    r.app.on_mic_samples(pcm.data(), pcm.size());
+    r.advance(100);
+  }
+  r.app.on_button(hg::Button::Talk, false);
+  CHECK(r.app.screen() == hg::Screen::Thinking);
 }
 
 TEST("app: a short tap is discarded instead of sent") {
