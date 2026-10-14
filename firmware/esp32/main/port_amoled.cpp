@@ -167,6 +167,7 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
     command(init[i].cmd, init[i].data, init[i].len);
     if (init[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init[i].delay_ms));
   }
+  blank_margins();
   // Each band's DMA transfer must finish before the bounce buffer is refilled.
   bands_.emplace(
       cfg.height, kBounceRows, 100,
@@ -187,6 +188,33 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
       [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
   ESP_LOGI(TAG, "CO5300 %ux%u ready", cfg.width, cfg.height);
   return true;
+}
+
+// A window shorter than the glass sits gap_y rows down, centred (432 rows on the 1.8"s 448, 486 on
+// the 2.06"s 502).
+// Flushes never write the rows above and below it, and the panel's memory starts out as noise,
+// so they are blanked once here.
+void AmoledDisplay::blank_margins() {
+  if (cfg_.gap_y <= 0) return;
+  const int w = cfg_.width, rows = std::min<int>(cfg_.gap_y, kBounceRows);
+  std::memset(bounce_, 0, static_cast<size_t>(w) * rows * 2);
+  const int x0 = cfg_.gap_x, x1 = cfg_.gap_x + w - 1;
+  const uint8_t cols[4] = {static_cast<uint8_t>(x0 >> 8), static_cast<uint8_t>(x0), static_cast<uint8_t>(x1 >> 8),
+                           static_cast<uint8_t>(x1)};
+  for (int top : {0, cfg_.gap_y + cfg_.height}) {
+    for (int y = top; y < top + cfg_.gap_y; y += rows) {
+      const int n = std::min(rows, top + cfg_.gap_y - y), yb = y + n - 1;
+      const uint8_t lines[4] = {static_cast<uint8_t>(y >> 8), static_cast<uint8_t>(y), static_cast<uint8_t>(yb >> 8),
+                                static_cast<uint8_t>(yb)};
+      command(0x2A, cols, 4);
+      command(0x2B, lines, 4);
+      if (esp_lcd_panel_io_tx_color(io_, static_cast<int>(kRamWrite), bounce_, static_cast<size_t>(n) * w * 2) != ESP_OK ||
+          xSemaphoreTake(done_, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW(TAG, "couldn't blank rows %d-%d outside the window", y, yb);
+        return;
+      }
+    }
+  }
 }
 
 hg::DisplayInfo AmoledDisplay::info() const {
