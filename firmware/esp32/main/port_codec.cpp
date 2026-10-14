@@ -313,8 +313,10 @@ void CodecSpeaker::task(void* arg) {
   int32_t* stereo = self->stereo_;
   auto& pa = self->pa_;
   bool playing = false;
+  hg::SpeakerUnderruns gaps;
   for (;;) {
     if (self->flush_.exchange(false)) {
+      gaps.finish();  // an aborted stream isn't reported
       if (pa) {
         // abort() already emptied the queue and turned the amplifier off.
         esp_codec_dev_set_out_mute(self->dev_, true);
@@ -327,9 +329,11 @@ void CodecSpeaker::task(void* arg) {
     size_t got = pa ? pa->receive(chunk, sizeof(chunk), generation)
                     : xStreamBufferReceive(self->buffer_, chunk, sizeof(chunk), pdMS_TO_TICKS(20));
     if (got == 0) {
+      if (playing && self->open_) gaps.ran_dry(speaker_now_ms());
       if (playing && !self->open_) {
         // Everything queued has been written out: mute so the amplifier stays quiet.
         self->draining_ = false;
+        log_underruns(TAG, gaps.finish());
         esp_codec_dev_set_out_mute(self->dev_, true);
         if (pa) pa->disable();
         playing = false;
@@ -343,6 +347,7 @@ void CodecSpeaker::task(void* arg) {
       }
       continue;
     }
+    gaps.resumed(speaker_now_ms());
     if (!playing) {
       esp_codec_dev_set_out_mute(self->dev_, false);
       playing = true;

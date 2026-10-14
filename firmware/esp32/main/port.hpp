@@ -22,6 +22,7 @@
 #include "cores3.hpp"
 #include "shared_reply.hpp"
 #include "speaker_pa.hpp"
+#include "speaker_underruns.hpp"
 #include "tag_scanner.hpp"
 #include "wifi_pick.hpp"
 #include "wifi_power.hpp"
@@ -232,6 +233,11 @@ class I2sMic final : public hg::AudioIn {
 };
 
 // I2S amplifier fed from a stream buffer by a writer task.
+// Speaker tasks time their underruns (speaker_underruns.hpp) with this clock and log
+// them in one line when a stream has finished playing (port_audio.cpp).
+uint32_t speaker_now_ms();
+void log_underruns(const char* tag, const hg::SpeakerUnderruns::Totals& t);
+
 class I2sSpeaker final : public hg::AudioOut {
  public:
   bool begin(const I2sSpeakerConfig& cfg);
