@@ -215,7 +215,8 @@ BoardConfig make() {
   b.buttons = {0, -1, -1, -1};  // BOOT is TALK
   b.talk_label = "BOOT";
   b.cancel_label = "Swipe down";
-  b.light_sleep = true;
+  // The FT3168's short INT pulse is not configured as a light-sleep wake
+  // source. Keep the CPU awake to read its report before it expires.
   return b;
 }
 #elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2

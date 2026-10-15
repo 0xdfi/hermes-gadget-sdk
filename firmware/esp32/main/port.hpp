@@ -295,7 +295,7 @@ class AmoledDisplay final : public hg::Display {
   void set_backlight(uint8_t percent) override;
 
  private:
-  void blank_margins();
+  bool blank_margins();
   static bool on_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t* edata, void* ctx);
   void command(uint8_t cmd, const uint8_t* data, size_t len);
   AmoledConfig cfg_{};

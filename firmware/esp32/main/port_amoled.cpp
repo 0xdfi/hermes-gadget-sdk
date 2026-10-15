@@ -167,7 +167,9 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
     command(init[i].cmd, init[i].data, init[i].len);
     if (init[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init[i].delay_ms));
   }
-  blank_margins();
+  // A timed-out margin transfer may still own bounce_. Leave it untouched and
+  // keep this display out of the HAL instead of starting normal drawing.
+  if (!blank_margins()) return false;
   // Each band's DMA transfer must finish before the bounce buffer is refilled.
   bands_.emplace(
       cfg.height, kBounceRows, 100,
@@ -194,8 +196,8 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
 // the 2.06"s 502).
 // Flushes never write the rows above and below it, and the panel's memory starts out as noise,
 // so they are blanked once here.
-void AmoledDisplay::blank_margins() {
-  if (cfg_.gap_y <= 0) return;
+bool AmoledDisplay::blank_margins() {
+  if (cfg_.gap_y <= 0) return true;
   const int w = cfg_.width, rows = std::min<int>(cfg_.gap_y, kBounceRows);
   std::memset(bounce_, 0, static_cast<size_t>(w) * rows * 2);
   const int x0 = cfg_.gap_x, x1 = cfg_.gap_x + w - 1;
@@ -211,10 +213,11 @@ void AmoledDisplay::blank_margins() {
       if (esp_lcd_panel_io_tx_color(io_, static_cast<int>(kRamWrite), bounce_, static_cast<size_t>(n) * w * 2) != ESP_OK ||
           xSemaphoreTake(done_, pdMS_TO_TICKS(100)) != pdTRUE) {
         ESP_LOGW(TAG, "couldn't blank rows %d-%d outside the window", y, yb);
-        return;
+        return false;
       }
     }
   }
+  return true;
 }
 
 hg::DisplayInfo AmoledDisplay::info() const {

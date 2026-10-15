@@ -357,6 +357,8 @@ The audio codecs and amplifier run from the always-on 3.3 V rail, so no AXP2101 
 
 The microphones are quiet: speech averaged about 170 RMS at the default 24 dB gain, under tap mode's usual 500 floor. This profile sets 30 dB and a floor of 200 (`codec.mic_gain_db`, `codec.vad_min_rms`), and tap mode's noise estimate still raises the threshold in a loud room.
 
+The CPU drops to 80 MHz when idle, but light sleep stays disabled. The FT3168's short interrupt pulse is not configured as a CPU wake source, and its report can expire before a sleeping CPU reads it. Enabling light sleep needs GPIO wake support and a physical wake test on battery. The [partial physical report](hardware-validation.md#waveshare-amoled-206-partial-physical-report) covers USB operation; the port stays experimental.
+
 Two more hardware facts for anyone building on this board. The QMI8658 is mounted a quarter turn from the screen: its +x axis points to the screen's bottom, +y to its left and +z out of the back (checked by tilting the watch). The schematic's vibration motor is not fitted: there is a driver (an NPN from GPIO 18) and two pads, P1 (the AXP2101's ALDO3) and P2, for a motor.
 
 **Controls.** Hold the screen to talk, tap to answer "yes", swipe down to cancel; hold BOOT to talk as well. A short press of PWR is read from the AXP2101; holding PWR for 6 s turns the watch off in hardware.
@@ -374,7 +376,7 @@ The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the s
 
 1. **Boot log:** `CO5300 410x486 ready`, `codecs: speaker ready, microphones ready`, `touch read on INT (GPIO 38)` and `touch ready, key off, encoder off`. In the `diag` report, `i2c` should include `0x18` (ES8311), `0x34` (AXP2101), `0x40` (ES7210), `0x51` (PCF85063) and `0x6b` (QMI8658). `0x38` (FT3168) is listed only while the touch chip is awake: it dozes after a few idle seconds and doesn't answer then.
 2. **Screen:** the mascot is upright and not mirrored; text is white on dark slate bars, and the link dot is green once online. A stripe at one edge means the column offset is off. Text clipped by a rounded corner means `corner_inset` needs raising.
-3. **Touch:** holding the screen shows the listening waves, and a swipe *down* cancels. If the coordinates are mirrored, flip `touch.mirror_x`/`mirror_y` in `board.cpp`. If they are 8 rows off, adjust `touch.offset_y`.
+3. **Touch:** holding the screen shows the listening waves, and a swipe *down* cancels. Report mirrored coordinates with the board revision; this FT5x06 adapter does not apply `touch.mirror_x` or `touch.mirror_y`. If they are 8 rows off, adjust `touch.offset_y`.
 4. **Microphones:** say something. The waves move with your voice and the transcript is right; in tap mode, a sentence spoken at arm's length starts and ends the recording.
 5. **Speaker:** replies are clear and loud enough (`set volume 80`), with no hiss between replies.
 6. **Power:** a short PWR press toggles the screen, and the battery reading appears with a cell attached.

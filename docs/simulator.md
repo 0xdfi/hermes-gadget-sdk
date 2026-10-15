@@ -86,6 +86,7 @@ Like a board, the simulated device takes firmware updates (`hermes gadget update
 | `sim-360x360-round` | 360×360 round | The 1.85C V2 LCD touch board, with the same controls as `sim-466x466-round` |
 | `sim-466x466-round` | 466×466 round | The 1.75" AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons, so long replies page by themselves |
 | `sim-368x448` | 368×448 | The 1.8" rectangular AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons |
+| `sim-410x486` | 410×486 | The 2.06" AMOLED watch's display window: hold the mouse to talk, click to answer yes, drag down to cancel. No scroll buttons. Does not model the glass's rounded corners or microphone gain |
 
 Add a profile to `BOARDS` in `python/hermes_gadget/sim/runner.py` to mirror new hardware.
 
