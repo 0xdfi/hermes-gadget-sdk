@@ -290,7 +290,10 @@ extern "C" void app_main(void) {
     profile.touch_screen = true;
     profile.extra_settings = {"touch_cancel"};
   }
-  if (hal.mic == &g_codec_mic) profile.mic_rate = hgp::CodecAudio::kRate;
+  if (hal.mic == &g_codec_mic) {
+    profile.mic_rate = hgp::CodecAudio::kRate;
+    profile.vad_min_rms = board.codec.vad_min_rms;
+  }
   if (hal.speaker == &g_codec_speaker) profile.speaker_rate = hgp::CodecAudio::kRate;
 
   static hg::App app(hal, profile);

@@ -16,6 +16,8 @@ namespace {
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.75c"
 #elif CONFIG_HG_BOARD_AMOLED_18
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.8"
+#elif CONFIG_HG_BOARD_AMOLED_206
+#define HG_BOARD_NAME "esp32s3-touch-amoled-2.06"
 #elif CONFIG_HG_BOARD_AIPI_LITE
 #define HG_BOARD_NAME "aipi-lite"
 #elif CONFIG_HG_BOARD_BOX3
@@ -157,6 +159,64 @@ BoardConfig make() {
   b.buttons = {0, -1, -1, -1};  // BOOT also works as TALK
   b.talk_label = "BOOT";
   b.cancel_label = "Swipe down";
+  return b;
+}
+#elif CONFIG_HG_BOARD_AMOLED_206
+// Waveshare ESP32-S3-Touch-AMOLED-2.06 watch: rectangular 410x502 AMOLED (CO5300,
+// QSPI) with rounded corners, FT3168 touch, ES8311 + ES7210 codecs (two
+// microphones), NS4150B amplifier, AXP2101 PMIC. No I/O expander.
+// Pins: docs/hardware.md#esp32-s3-touch-amoled-206
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.amoled.enabled = true;
+  b.amoled.width = 410;
+  b.amoled.height = 486;    // the UI stays 8 rows clear of the rounded corners (502 glass - 16)
+  b.amoled.cs = 12;
+  b.amoled.sclk = 11;
+  b.amoled.d0 = 4;
+  b.amoled.d1 = 5;
+  b.amoled.d2 = 6;
+  b.amoled.d3 = 7;
+  b.amoled.rst = 8;
+  b.amoled.gap_x = 22;      // the controller RAM is wider than the 410-wide glass
+  b.amoled.gap_y = 8;       // the 8-row inset at the top
+  // The glass corners are ~100 px in radius (measured with a grid): the top bar's text, on glass
+  // rows 10-24, needs ~57 px at its top row; 64 plus the bar's 6 px pad leaves some to spare.
+  b.amoled.corner_inset = 64;
+  b.amoled.panel = AmoledPanel::Co5300_410;
+  b.i2c = {15, 14, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 16;
+  b.codec.bclk = 41;
+  b.codec.ws = 45;
+  b.codec.dout = 40;
+  b.codec.din = 42;
+  b.codec.pa = 46;
+  b.codec.speaker_pa = true;  // the amplifier draws power only while sound plays
+  // Speech measured ~170 RMS on average (peaks ~3.8k) at the default 24 dB: under tap
+  // mode's 500 floor, so tap mode never heard anyone. 30 dB doubles it with headroom
+  // to spare, and the floor drops to 200 (the noise estimate still sets the threshold
+  // above it in a loud room).
+  b.codec.mic_gain_db = 30.0f;
+  b.codec.vad_min_rms = 200.0f;
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Ft5x06;  // the FT3168 sends the same report
+  b.touch.addr = 0x38;
+  b.touch.rst = 9;
+  b.touch.int_gpio = 38;  // pulses low on a report: reads follow it, and a dozing chip is left alone
+  b.touch.width = 410;
+  b.touch.height = 502;
+  b.touch.offset_y = 8;     // touch reports glass rows; the UI starts at row 8
+  b.axp2101 = true;
+  // PWR reaches only the AXP2101 (PWRON): its short press is read there. Holding it
+  // keeps the PMIC's own power behaviour.
+  b.axp_power_key = true;
+  b.buttons = {0, -1, -1, -1};  // BOOT is TALK
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
+  // The FT3168's short INT pulse is not configured as a light-sleep wake
+  // source. Keep the CPU awake to read its report before it expires.
   return b;
 }
 #elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2

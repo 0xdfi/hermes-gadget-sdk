@@ -38,6 +38,7 @@ struct DeviceProfile {
   std::string default_server_url;
   std::string default_access_token;
   uint32_t mic_rate = 16000;
+  float vad_min_rms = 500.0f;  // tap mode: the quietest block that counts as speech (a quiet mic wants less)
   uint32_t speaker_rate = 16000;
   bool has_cancel_button = true;
   bool has_scroll_buttons = false;
