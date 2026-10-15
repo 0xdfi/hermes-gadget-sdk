@@ -147,6 +147,7 @@ class Simulator:
         self.mic = Microphone(live=live_audio)
         self.speaker = Speaker(state_dir / "audio" if state_dir else None, live=live_audio)
         self.peripherals = VirtualPeripherals()
+        self.power_status: dict | None = None
         self.logs: list[tuple[int, str]] = []
         self.sent: list[dict] = []          # outbound JSON, newest last (for tests/UI)
         self.received: list[dict] = []      # inbound JSON
@@ -169,7 +170,7 @@ class Simulator:
             server_url=url, access_token=token, mic=b.mic, speaker=b.speaker, backlight=b.backlight,
             scroll_buttons=b.scroll_buttons, library=library, button_labels=button_labels,
             round_panel=b.round, touch_screen=b.touch, update_capacity=UPDATE_SLOT_BYTES,
-            update_pending=update_pending)
+            update_pending=update_pending, power=True)
         self._round_spans = _circle_spans(b.width, b.height) if b.round else None
         self._register_actions()
 
@@ -423,6 +424,11 @@ class Simulator:
 
     def set_sensor(self, name: str, value: float) -> None:
         self.device.set_sensor(name, value)
+
+    def set_power(self, status: dict | None) -> None:
+        """Replace the power fixture; native validation rejects invalid inputs atomically."""
+        self.device.set_power(status)
+        self.power_status = dict(status) if status is not None else None
 
     def console(self, line: str) -> str:
         return self.device.console(line)

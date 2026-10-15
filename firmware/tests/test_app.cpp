@@ -1735,6 +1735,305 @@ TEST("display: an emissive panel leaves its background unlit; a backlit one keep
   }
 }
 
+namespace {
+struct EstimatePower : hg::Power {
+  std::optional<hg::PowerStatus> status =
+      hg::PowerStatus{std::nullopt, 3750, std::nullopt, false, std::nullopt};
+  int reads = 0;
+  std::optional<hg::PowerStatus> read() override { ++reads; return status; }
+  bool power_off() override { return false; }
+};
+}  // namespace
+
+TEST("battery estimate: voltage requires opt-in and selecting percentage produces text only") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK(r.fake.kv.find("batt_estimate") == r.fake.kv.end());
+  CHECK_EQ(r.app.console("set battery_display percentage"), std::string("@ok battery_display"));
+  CHECK_EQ(int(r.app.model().battery), -1);
+  r.app.set_sensor("battery_pct", 87);  // demo telemetry is not the header power source
+  r.advance(100);
+  CHECK_EQ(int(r.app.model().battery), -1);
+  const int reads = battery.reads;
+  CHECK_EQ(r.app.console("set battery_estimate liion"), std::string("@ok battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK(!r.app.model().battery_icon);
+  CHECK(r.app.model().battery_text);
+  CHECK(!r.app.model().battery_low);  // unknown external power is not inferred to be battery-only
+  CHECK_EQ(battery.reads, reads);  // activation uses the existing raw snapshot
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("percentage"));
+  CHECK_EQ(r.fake.kv["batt_estimate"], std::string("liion"));
+}
+
+TEST("battery estimate: plausible limits, missing inputs and explicit absence control visibility") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  r.app.console("set battery_display percentage");
+  r.app.console("set battery_estimate liion");
+  struct Sample { std::optional<hg::PowerStatus> status; int percent; };
+  for (const Sample& sample : {
+           Sample{hg::PowerStatus{std::nullopt, 2000, std::nullopt, false, std::nullopt}, 0},
+           Sample{hg::PowerStatus{std::nullopt, 3300, std::nullopt, false, std::nullopt}, 0},
+           Sample{hg::PowerStatus{true, 4200, std::nullopt, false, std::nullopt}, 100},
+           Sample{hg::PowerStatus{true, 4500, std::nullopt, false, std::nullopt}, 100},
+           Sample{hg::PowerStatus{true, 1999, std::nullopt, false, false}, -1},
+           Sample{hg::PowerStatus{true, 4501, std::nullopt, false, false}, -1},
+           Sample{hg::PowerStatus{true, std::nullopt, std::nullopt, false, false}, -1},
+           Sample{hg::PowerStatus{false, 3750, std::nullopt, false, true}, -1},
+           Sample{hg::PowerStatus{false, 3750, 65, false, true}, -1},
+           Sample{hg::PowerStatus{std::nullopt, 3750, std::nullopt, false, std::nullopt}, 50},
+           Sample{std::nullopt, -1}}) {
+    battery.status = sample.status;
+    r.advance(5000);
+    CHECK_EQ(int(r.app.model().battery), sample.percent);
+    CHECK(!r.app.model().battery_charging);
+    CHECK(!r.app.model().battery_low);
+  }
+}
+
+TEST("battery estimate: voltage and charging change at normal five-second polls and failure clears them") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();  // establishes the first poll at the current fake time
+  r.app.console("set battery_display percentage");
+  r.app.console("set battery_estimate liion");
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK_EQ(battery.reads, 1);
+  battery.status = hg::PowerStatus{std::nullopt, 4200, std::nullopt, true, std::nullopt};
+  r.advance(4990);
+  CHECK_EQ(battery.reads, 1);
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK(!r.app.model().battery_charging);
+  r.advance(10);
+  CHECK_EQ(battery.reads, 2);
+  CHECK_EQ(int(r.app.model().battery), 100);
+  CHECK(r.app.model().battery_charging);  // the endpoint does not mean charging has finished
+  battery.status = hg::PowerStatus{std::nullopt, 3300, std::nullopt, false, std::nullopt};
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 0);
+  CHECK(!r.app.model().battery_charging);
+  CHECK(!r.app.model().battery_low);
+  battery.status->external_power = false;
+  r.advance(5000);
+  CHECK(r.app.model().battery_low);
+  battery.status->external_power = true;
+  r.advance(5000);
+  CHECK(!r.app.model().battery_low);
+  battery.status.reset();
+  r.advance(4990);
+  CHECK_EQ(int(r.app.model().battery), 0);
+  r.advance(10);
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK(!r.app.model().battery_charging);
+  CHECK(!r.app.model().battery_low);
+}
+
+TEST("battery estimate: native percentages including zero take precedence without requiring voltage") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  r.app.console("set battery_display percentage");
+  r.app.console("set battery_estimate liion");
+  for (uint8_t percent : {uint8_t(0), uint8_t(9), uint8_t(100)}) {
+    battery.status = hg::PowerStatus{std::nullopt, 3750, percent, true, std::nullopt};
+    r.advance(5000);
+    CHECK_EQ(int(r.app.model().battery), int(percent));
+    CHECK(r.app.model().battery_charging);
+    battery.status->battery_mv.reset();
+    r.advance(5000);
+    CHECK_EQ(int(r.app.model().battery), int(percent));
+  }
+  const int reads = battery.reads;
+  CHECK_EQ(r.app.console("set battery_estimate off"), std::string("@ok battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), 100);
+  CHECK_EQ(r.app.console("set battery_estimate"), std::string("@ok battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), 100);
+  CHECK_EQ(battery.reads, reads);
+}
+
+TEST("battery estimate: disabling and clearing hide only the derived value immediately") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  r.app.console("set battery_display percentage");
+  r.app.console("set battery_estimate liion");
+  const int reads = battery.reads;
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK_EQ(r.app.console("set battery_estimate off"), std::string("@ok battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK_EQ(r.fake.kv["batt_estimate"], std::string("off"));
+  r.app.console("set battery_estimate liion");
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK_EQ(r.app.console("set battery_estimate"), std::string("@ok battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK(r.fake.kv.find("batt_estimate") == r.fake.kv.end());
+  r.app.console("set battery_estimate liion");
+  CHECK_EQ(int(r.app.model().battery), 50);
+  r.app.console("set battery_display off");
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK_EQ(r.fake.kv["batt_estimate"], std::string("liion"));
+  CHECK_EQ(battery.reads, reads);
+}
+
+TEST("battery estimate: both settings survive a fresh App and factory reset removes the opt-in") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  r.app.console("set battery_estimate liion");
+  CHECK_EQ(int(r.app.model().battery), -1);  // estimation alone does not turn on the indicator
+  r.app.console("set battery_display percentage");
+  CHECK_EQ(int(r.app.model().battery), 50);
+  Rig reboot;
+  reboot.fake.kv = r.fake.kv;
+  reboot.hal.power = &battery;
+  reboot.app.begin();
+  reboot.app.tick();
+  CHECK_EQ(int(reboot.app.model().battery), 50);
+  CHECK(!reboot.app.model().battery_icon && reboot.app.model().battery_text);
+  CHECK(reboot.app.console("help").find("battery_estimate") != std::string::npos);
+  Value setting;
+  const std::string response = reboot.app.console("get battery_estimate");
+  CHECK(response.rfind("@value ", 0) == 0);
+  CHECK(hg::json::parse(response.substr(7), setting));
+  CHECK_EQ(setting["value"].as_string(), std::string("liion"));
+  reboot.app.console("factory-reset");
+  CHECK(reboot.fake.kv.find("batt_estimate") == reboot.fake.kv.end());
+  CHECK(reboot.fake.kv.find("battery_display") == reboot.fake.kv.end());
+  Rig reset;
+  reset.fake.kv = reboot.fake.kv;
+  reset.hal.power = &battery;
+  reset.app.begin();
+  reset.app.tick();
+  reset.app.console("set battery_display percentage");
+  CHECK_EQ(int(reset.app.model().battery), -1);
+}
+
+TEST("battery estimate: invalid saved values and rejected writes never activate it") {
+  for (const std::string saved : {"", "off", "unknown", "LIION"}) {
+    EstimatePower battery;
+    Rig r;
+    r.hal.power = &battery;
+    r.fake.kv["battery_display"] = "percentage";
+    r.fake.kv["batt_estimate"] = saved;
+    r.app.begin();
+    r.app.tick();
+    CHECK_EQ(int(r.app.model().battery), -1);
+  }
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.app.begin();
+  r.app.tick();
+  r.app.console("set battery_display percentage");
+  for (const char* value : {"on", "LIION", "true", "liion extra"}) {
+    CHECK_EQ(r.app.console(std::string("set battery_estimate ") + value),
+             std::string("@error battery_estimate must be off or liion"));
+    CHECK_EQ(int(r.app.model().battery), -1);
+    CHECK(r.fake.kv.find("batt_estimate") == r.fake.kv.end());
+  }
+  r.fake.storage_full = true;
+  CHECK_EQ(r.app.console("set battery_estimate liion"), std::string("@error could not save battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK(r.fake.kv.find("batt_estimate") == r.fake.kv.end());
+  r.fake.storage_full = false;
+  r.app.console("set battery_estimate liion");
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK_EQ(r.app.console("set battery_estimate unknown"), std::string("@error battery_estimate must be off or liion"));
+  CHECK_EQ(int(r.app.model().battery), 50);
+  r.fake.storage_full = true;
+  CHECK_EQ(r.app.console("set battery_estimate off"), std::string("@error could not save battery_estimate"));
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK_EQ(r.fake.kv["batt_estimate"], std::string("liion"));
+}
+
+TEST("battery estimate: Power-page selection uses the display value and changes only indicator style") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.console("set battery_estimate liion");
+  CHECK(r.app.open_settings());
+  for (int i = 0; i < 8; ++i) r.app.console("cancel");
+  r.app.console("talk"); r.app.console("release");
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("icon"));
+  CHECK_EQ(int(r.app.model().battery), 50);
+  CHECK(r.app.model().battery_icon && !r.app.model().battery_text);
+  r.app.console("talk"); r.app.console("release");
+  CHECK_EQ(r.fake.kv["battery_display"], std::string("percentage"));
+  CHECK(!r.app.model().battery_icon && r.app.model().battery_text);
+  CHECK_EQ(r.fake.kv["batt_estimate"], std::string("liion"));
+}
+
+TEST("battery estimate: raw status and gateway telemetry remain unestimated, including unavailable transitions") {
+  EstimatePower battery;
+  Rig r;
+  r.hal.power = &battery;
+  r.bring_online(true);
+  r.app.console("set battery_display percentage");
+  r.app.console("set battery_estimate liion");
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 50);
+  Value status;
+  CHECK(hg::json::parse(r.app.status_json(), status));
+  CHECK(status["power"]["available"].as_bool());
+  CHECK_EQ(status["power"]["battery_mv"].as_int(), int64_t(3750));
+  CHECK(status["power"]["battery_percent"].is_null());
+  CHECK(status["power"]["battery_present"].is_null());
+  CHECK(status["power"]["external_power"].is_null());
+  CHECK(status["power"]["charging"].is_bool() && !status["power"]["charging"].as_bool());
+  const Value* state = r.fake.last("state");
+  CHECK(state != nullptr);
+  if (!state) return;
+  CHECK_EQ((*state)["sensors"]["power_available"].as_int(), int64_t(1));
+  CHECK_EQ((*state)["sensors"]["battery_mv"].as_int(), int64_t(3750));
+  CHECK((*state)["sensors"]["battery_percent"].is_null());
+  CHECK((*state)["sensors"]["battery_present"].is_null());
+  CHECK((*state)["sensors"]["external_power"].is_null());
+  CHECK_EQ((*state)["sensors"]["charging"].as_int(), int64_t(0));
+  const std::string ready_detail = r.app.model().detail;
+  battery.status = hg::PowerStatus{std::nullopt, 3300, std::nullopt, false, false};
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 0);
+  CHECK(r.app.model().battery_low);
+  CHECK_EQ(r.app.model().detail, ready_detail);  // a display estimate does not create a battery alarm
+  battery.status = hg::PowerStatus{true, 4200, 0, true, true};
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), 0);
+  CHECK(hg::json::parse(r.app.status_json(), status));
+  CHECK(status["power"]["battery_percent"].is_number());
+  CHECK_EQ(status["power"]["battery_percent"].as_int(), int64_t(0));
+  state = r.fake.last("state");
+  CHECK(state && (*state)["sensors"]["battery_percent"].is_number());
+  CHECK(state && (*state)["sensors"]["battery_percent"].as_int() == 0);
+  battery.status.reset();
+  r.advance(5000);
+  CHECK_EQ(int(r.app.model().battery), -1);
+  CHECK(hg::json::parse(r.app.status_json(), status));
+  CHECK(!status["power"]["available"].as_bool());
+  CHECK(status["power"]["battery_mv"].is_null());
+  CHECK(status["power"]["battery_percent"].is_null());
+  state = r.fake.last("state");
+  CHECK(state && (*state)["sensors"]["power_available"].is_number());
+  CHECK(state && (*state)["sensors"]["power_available"].as_int() == 0);
+  CHECK(state && (*state)["sensors"]["battery_mv"].is_null());
+  CHECK(state && (*state)["sensors"]["battery_percent"].is_null());
+}
+
 TEST("battery indicator: off by default, follows readings once chosen, and each select picks the next style") {
   struct Battery : hg::Power {
     hg::PowerStatus status{true, 3850, 65, false, false};

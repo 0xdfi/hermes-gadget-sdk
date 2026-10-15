@@ -42,7 +42,18 @@ Tap CANCEL to move to the next item, then tap TALK to change it. On a touchscree
 
 Volume, brightness, talk mode, battery indicator, and screen timeout survive restarts. Unavailable drivers show as unavailable. These checks help you test the hardware; a completed tone does not prove that a physical speaker produced sound.
 
-The battery indicator is off by default. When the board reports a battery percentage, each select on **Battery and power** moves to the next choice: icon only, percentage only, both, or off. It sits in the title bar, or centred at the top edge of a round display, and appears only when the board reports a percentage: boards without a fuel gauge or voltage estimate show nothing. The icon fills green while charging and turns red at 10 percent or less without USB; with the percentage alone, the number changes color instead. The percentage is the same estimate as in **Battery and power**. From the USB console, use `set battery_display icon`, `percentage`, `both` or `off`.
+The battery indicator is off by default. When a driver percentage or explicitly enabled voltage estimate is available, each select on **Battery and power** moves to the next choice: icon only, percentage only, both, or off. It sits in the title bar, or centred at the top edge of a round display; without an available percentage it shows nothing. The icon fills green while charging and turns red at 10 percent or less with an explicit battery-only power reading; with the percentage alone, the number changes color instead. The percentage is the same value as in **Battery and power**. From the USB console, use `set battery_display icon`, `percentage`, `both` or `off`.
+
+On voltage-only boards, first confirm that a compatible **single-cell 3.7 V Li-ion battery is actually fitted**, then enable the rough display estimate from the serial console:
+
+```text
+set battery_estimate liion
+set battery_display percentage
+```
+
+Both settings persist; neither is enabled automatically. The Power page labels this value **voltage estimate**. It maps 3300–4200 mV linearly to 0–100% with integer rounding down; readings outside 2000–4500 mV, missing readings, or an explicitly absent battery hide it. Charging affects voltage and accuracy; 100% does not mean charging is complete. It does not detect battery presence, USB power, capacity, or runtime. Native driver percentages always take precedence, including zero. Raw status and gateway telemetry remain unchanged, and this display-only estimate does not add battery alarms.
+
+Use `set battery_estimate off` (or `set battery_estimate` to clear it) to stop deriving percentages, and `set battery_display off` to hide any indicator. The percentage remains visible while charging; charging turns percentage-only text green. Red low-battery coloring requires an explicit battery-only power reading, which the LCD-1.54 does not supply.
 
 Screen timeout is off by default. When enabled, a brightness-capable display dims halfway through the idle period, then goes dark. The first button press or touch wakes it without recording or answering a prompt. Incoming replies and prompts wake it too. Recording, playback, Wi-Fi setup, pairing (with Hermes or a phone) and updates keep it awake. The settings menu sleeps like any other screen, and the input that wakes it leaves the menu on the same item, including a running hardware check. The processor and Wi-Fi remain running; this is screen sleep. AMOLED panels also switch their output off while dark. Use the board's Power off control to shut down the device.
 
