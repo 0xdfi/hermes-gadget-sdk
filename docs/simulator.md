@@ -60,6 +60,7 @@ A first session, start to finish:
 | **Developer tools**, Wi-Fi checkbox | Simulate losing the network |
 | **Developer tools**, sensors | Battery and temperature sliders, reported to Hermes as telemetry |
 | **Developer tools**, serial console | The same commands as the board's UART console (`help`, `status`, `set server ...`) |
+| **Developer tools**, Power (simulated) | Supply a complete power-driver reading, independently of the generic telemetry sliders |
 
 The simulated device registers two demo actions the agent can use: `led.set` (a virtual LED in the window) and `buzzer.beep`.
 
@@ -71,6 +72,14 @@ State lives in `~/.hermes-gadget/sim/<name>/` (override with `--state-dir`):
 - `audio/`: every reply the speaker played, as WAV.
 - `screenshots/`: screenshots saved with Ctrl+S.
 - `update.bin`: the last firmware image installed over the air.
+
+### Simulated power
+
+Power starts unavailable. In **Developer tools → Power (simulated)**, select **Read available**, enter **Battery mV** and/or **Battery %**, and choose **Unknown**, **Yes**, or **No** for presence, charging, and external power. Blank numeric entries mean unknown. **Apply power reading** replaces the entire reading; invalid input preserves the last applied reading. The production firmware polls within five seconds. Uncheck availability and apply to clear it; changing controls alone never applies a reading.
+
+The **Telemetry battery %** slider remains an independent generic sensor, not the header battery source. No estimator or indicator is automatically enabled. To preview the LCD-1.54's approximate display estimate, use `sim-240x240`, name `Waveshare 1.54`, enter `set battery_estimate liion` then `set battery_display percentage` in the console, and apply 3750 mV with no native percentage: the header shows 50%. See the [fitted-battery caveat and estimate limitations](using-gadget.md#device-settings-and-hardware-checks) before enabling this on hardware.
+
+Rebuilding the window for a board change or starting a new simulator resets the power fixture to unavailable. Firmware settings persist in `nvs.json`; fixtures do not. Rebuild the simulator library after this ABI 6 update; Linux native-core clients still default to no power device.
 
 Like a board, the simulated device takes firmware updates (`hermes gadget update`, or `update <path>` in the dev server). It checks the image the way the core does and keeps only ESP32 app images. Then it "restarts": it drops the connection and connects again, still running the simulator.
 
@@ -108,9 +117,26 @@ Script commands, one per line:
 | `console <line>` | Run a serial-console command |
 | `status` | Print the device status |
 | `screenshot <file.png>` | Save the screen |
+| `power <JSON-object-or-null>` | Replace the simulated power reading; `null` makes it unavailable; wait at least five seconds for polling |
 | `expect <text>` | Fail unless the last reply contains `<text>` |
 
 Screens are `boot`, `offline`, `connecting`, `pairing`, `ready`, `listening`, `thinking`, `responding`, `card`, `image`, `prompt`, `updating`, `settings`, `setup` and `error`. The `setup` screen belongs to the ESP32 phone-setup flow; the simulator does not start a Wi-Fi access point.
+
+For example, after `wait ready 20`:
+
+```text
+console set battery_estimate liion
+console set battery_display percentage
+power {"battery_mv":3750,"charging":false}
+sleep 5.2
+status
+screenshot /tmp/hg-battery-50.png
+power null
+sleep 5.2
+status
+```
+
+Power objects accept only `battery_present`, `battery_mv`, `battery_percent`, `charging`, and `external_power`. Missing fields or JSON `null` values are unknown; `{}` is an available reading with every field unknown. Booleans must be `true`/`false`, voltage an integer 0–65535, and percentage an integer 0–100; booleans are not numeric inputs. Invalid JSON, keys, types, or ranges stop a script with a line-numbered error and leave the applied fixture unchanged. Voltage-only `status.power` never gains a derived `battery_percent`, even when the header displays an estimate.
 
 ## Using it from Python
 
@@ -128,5 +154,7 @@ print(sim.last_received("reply")["text"])
 sim.screenshot("reply.png")
 sim.close()
 ```
+
+Use `sim.set_power({"battery_mv": 3750, "charging": False})` for the same complete replacement from Python, or `sim.set_power(None)` to clear it. `sim.power_status` holds the last successfully applied host fixture. Advance normal polling with `sim.run_for(5.2)` before observing the device; setting inputs does not directly change its model.
 
 `tests/test_sim_hub.py` and `tests/test_gateway_e2e.py` are worked examples.

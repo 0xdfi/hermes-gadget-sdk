@@ -37,7 +37,12 @@ constexpr uint32_t kOtaRestartMs = 1000;    // time for ota.done to leave before
 constexpr uint32_t kBackoffMs[] = {1000, 2000, 4000, 8000, 15000, 30000};
 constexpr size_t kBackoffSteps = sizeof(kBackoffMs) / sizeof(kBackoffMs[0]);
 
-const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "wifi_ssid", "wifi_pass"};
+const char* const kSettingKeys[] = {"name", "server", "token", "talk_mode", "volume", "brightness", "screen_timeout", "battery_display", "battery_estimate", "wifi_ssid", "wifi_pass"};
+
+// NVS limits storage keys to 15 characters; keep the public setting name unchanged.
+std::string_view setting_storage_key(std::string_view key) {
+  return key == "battery_estimate" ? std::string_view("batt_estimate") : key;
+}
 
 bool is_secret(std::string_view key) { return key == "token" || key == "wifi_pass"; }
 
@@ -90,7 +95,7 @@ void App::log(LogLevel level, std::string_view msg) {
 
 std::string App::setting(std::string_view key, std::string_view fallback) const {
   if (hal_.storage) {
-    if (auto v = hal_.storage->get(key)) return *v;
+    if (auto v = hal_.storage->get(setting_storage_key(key))) return *v;
   }
   return std::string(fallback);
 }
@@ -110,6 +115,7 @@ void App::load_settings() {
   battery_display_ = indicator == "icon" ? BatteryIndicator::Icon
                        : indicator == "percentage" ? BatteryIndicator::Percentage
                        : indicator == "both" ? BatteryIndicator::Both : BatteryIndicator::Off;
+  battery_estimate_enabled_ = setting("battery_estimate", "off") == "liion";
   activity_at_ = now();
   display_dimmed_ = display_sleeping_ = false;
 }
@@ -1378,11 +1384,13 @@ void App::update_model() {
   m.battery_charging = m.battery_low = false;
   m.battery_icon = battery_display_ != BatteryIndicator::Percentage;
   m.battery_text = battery_display_ != BatteryIndicator::Icon;
-  if (battery_display_ != BatteryIndicator::Off && battery_readable()) {
-    const auto& p = *power_status_;
-    m.battery = static_cast<int8_t>(std::min<int>(*p.battery_percent, 100));
-    m.battery_charging = p.charging == true;
-    m.battery_low = *p.battery_percent <= 10 && p.external_power == false;
+  if (battery_display_ != BatteryIndicator::Off) {
+    if (const auto percent = display_battery_percent()) {
+      const auto& p = *power_status_;
+      m.battery = static_cast<int8_t>(std::min<int>(*percent, 100));
+      m.battery_charging = p.charging == true;
+      m.battery_low = *percent <= 10 && p.external_power == false;
+    }
   }
 
   switch (phase_) {
@@ -1691,9 +1699,11 @@ std::string App::console(std::string_view raw) {
     if (key == "battery_display" && !value.empty() && value != "icon" && value != "percentage" && value != "both" &&
         value != "off")
       return "@error battery_display must be icon, percentage, both or off";
+    if (key == "battery_estimate" && !value.empty() && value != "off" && value != "liion")
+      return "@error battery_estimate must be off or liion";
     if (!hal_.storage) return "@error no storage";
-    if (value.empty()) hal_.storage->erase(key);
-    else if (!hal_.storage->set(key, value)) return "@error could not save " + key;
+    if (value.empty()) hal_.storage->erase(setting_storage_key(key));
+    else if (!hal_.storage->set(setting_storage_key(key), value)) return "@error could not save " + key;
     load_settings();
     if (key == "wifi_ssid" || key == "wifi_pass") {
       // These keys hold the first saved network: bring the list in line.
@@ -1758,7 +1768,7 @@ std::string App::console(std::string_view raw) {
     if (!hal_.storage) return "@error no storage";
     hal_.storage->erase("device_key");
     if (cmd == "factory-reset") {
-      for (const char* k : kSettingKeys) hal_.storage->erase(k);
+      for (const char* k : kSettingKeys) hal_.storage->erase(setting_storage_key(k));
       for (const auto& k : profile_.extra_settings) hal_.storage->erase(k);
       hal_.storage->erase("wifi_nets");
       if (on_phone_forget) on_phone_forget();

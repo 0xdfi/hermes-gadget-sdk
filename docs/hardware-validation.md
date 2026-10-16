@@ -26,7 +26,24 @@ Firmware builds and simulator tests check software behavior. A physical verifica
 
 The LCD-1.54 `-EN` SKU uses the same hardware. The separate Touch-LCD-1.54 model adds a CST816 touchscreen that this port does not drive. AMOLED-1.75C has its own firmware profile; its reset and audio clock pins differ from the 1.75 model. See [hardware and wiring](hardware.md) for connections and exact model names.
 
+A [partial LCD-1.54 physical report](#waveshare-lcd-154-partial-physical-report) covers the Touch-LCD-1.54 SKU 33869 running the LCD-1.54 profile. It does not verify the separate non-touch SKUs.
+
 CI builds and packages these profiles. The browser installer lists profiles included in the latest published release, so newly merged profiles may require a source build until the next release. Other chips, wiring, and unlisted hardware revisions are porting targets, not verified configurations.
+
+## Waveshare LCD-1.54 partial physical report
+
+- **Board / revision:** owner-identified Waveshare ESP32-S3-Touch-LCD-1.54, SKU 33869. PCB revision not established. USB discovery reported ESP32-S3 (QFN56) revision v0.2, 16 MB flash and 8 MB embedded PSRAM. This profile does not drive the touchscreen.
+- **Firmware:** local version 0.2.0 with the opt-in battery-estimate patch, built with ESP-IDF 6.1.0 using `esp32s3-lcd-154`; not a published release. The installed application SHA-256 is `38c40ee787633aad3056385ec66ea84839cef4dacbea8a3a72bfc89c556591a1`.
+- **Host / Hermes:** USB installation from Linux. The live Hermes version was not independently recorded; gateway configuration was not changed.
+- **Supply / battery:** USB during installation. The owner confirmed a battery was physically connected and reported its package label verbatim: `SKU 33228 3.7V 1000mA MX1.25 2P 50mm`. Capacity and chemistry were not independently established; the label's `1000mA` is not treated as a measured capacity.
+- **USB install / recovery:** Secure Boot and flash encryption were disabled. Two fresh full 16 MiB flash reads matched byte-for-byte and by SHA-256; the installed partition table matched the build before upload. The PlatformIO upload passed write verification, and a separate application readback verification matched. Backup restoration was not attempted.
+- **Identity / settings / pairing:** the original device identity, name, gateway setting and all pre-existing logical NVS values were preserved. NVS was not byte-identical after boot: the firmware added the saved-network migration entry `wifi_nets`. The device reconnected online and paired. `battery_estimate=liion` and `battery_display=percentage` were read back after a hardware reset.
+- **Display / audio:** boot logs reported ST7789, ES7210 and ES8311 initialization. The owner confirmed the physical header percentage was visible and a short real spoken question and spoken reply worked. This is owner-reported physical evidence, not a simulator result or an independent screen/audio measurement.
+- **Power / estimate limitations:** activation followed the owner's fitted-battery confirmation. One raw reading was 4131 mV with charging false, which maps to 92% using the linear estimate; raw telemetry still omitted battery percentage, presence and external-power state. The owner subsequently observed green 100% with USB connected and an immediate 88% after unplugging. This is consistent with a voltage estimate changing with charging/load conditions, not evidence that 12% of stored energy was lost. No simultaneous meter measurements, calibrated state-of-charge accuracy or charge-completion claim is established.
+- **Network / serial:** normal boot and restart reconnection were observed. Early status could show no network before startup settled. One post-reset console query timed out; subsequent startup capture and console synchronization succeeded. Forced Wi-Fi/gateway loss and recovery were not exercised.
+- **Untested checklist items:** exact PCB revision; meter comparison and charging accuracy; controlled battery-versus-USB operation and runtime; full display/color/button checks; individual microphones, audio interruption and distortion measurements; screen timeout, sleep and shutdown; phone setup; hostile/unapproved pairing; OTA/rollback; backup restoration; and a two-hour stability session.
+
+The port stays experimental. This report covers a bounded feature smoke check, not the complete physical checklist or battery calibration.
 
 ## Waveshare 1.85C V2 partial physical report
 
