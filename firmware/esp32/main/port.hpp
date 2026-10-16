@@ -347,6 +347,8 @@ bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset
 namespace i2c {
 // The board's shared I2C master bus (created on first use).
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
+// A second bus on the other I2C controller, for a touch controller wired apart.
+i2c_master_bus_handle_t touch_bus(const I2cBusConfig& cfg);
 }
 
 // ES8311 + ES7210 on one duplex I2S bus through esp_codec_dev. Both directions

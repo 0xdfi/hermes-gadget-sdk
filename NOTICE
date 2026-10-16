@@ -69,6 +69,12 @@ firmware/esp32/main/board.cpp follow xiaozhi-esp32's xorigin/aipi-lite board,
 https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite,
 MIT License. Only these hardware facts are used.
 
+The Spotpear ESP32-S3-1.54 muma pin map, panel settings and power wiring in
+firmware/esp32/main/board.cpp follow xiaozhi-esp32's
+spotpear/sp-esp32-s3-1.54-muma board,
+https://github.com/78/xiaozhi-esp32/tree/d91d6824309d12df5fc3db5edf8145ee829135d7/main/boards/spotpear/sp-esp32-s3-1.54-muma,
+MIT License. Only these hardware facts are used.
+
 The BOX-3 panel initialization register values in
 firmware/esp32/main/panel_box3.hpp follow Espressif's ESP32-S3-BOX-3 BSP,
 https://github.com/espressif/esp-bsp/tree/master/bsp/esp-box-3,

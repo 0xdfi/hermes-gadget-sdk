@@ -424,6 +424,51 @@ The profile expects the USB-C port to be the S3's own USB Serial/JTAG, used for 
 
 The pin map follows xiaozhi-esp32's `xorigin/aipi-lite` board at commit `0d576d3`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
+## Spotpear ESP32-S3-1.54 muma
+
+Board option `spotpear-muma`, for Spotpear's 1.54" "muma" (little wooden horse) board, SKU `sp-esp32-s3-1.54-muma`: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 240×240 ST7789 panel over SPI, one ES8311 codec for both the speaker and the microphone, a speaker, a BOOT key, a battery connector and, on the touch version, a CST816D touchscreen. It ships with the XiaoZhi firmware, whose boot log prints `SKU=sp-esp32-s3-1.54-muma`. This port is experimental.
+
+**Back up the whole flash before the first flash.** The board has no other copy of its factory firmware:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0 0x1000000 muma-factory.bin
+```
+
+Writing that file back at `0x0` restores the original firmware.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST7789, SPI | MOSI 2, SCLK 4, CS 5, DC 47, RST 38; colors inverted; backlight GPIO 42, active low |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18 on SDA 15, SCL 14; I2S MCLK 16, BCLK 9, WS 45, DOUT 8, DIN 10; amplifier enable 46 |
+| Touch (touch version) | CST816D | I2C 0x15 on its own bus, SDA 11, SCL 7; RST 6, INT 12 |
+| Power | | GPIO 3 latches the battery path on; charge signal on GPIO 41 (high while charging); battery divider on GPIO 1 (ADC1 channel 0) |
+| Keys | | BOOT GPIO 0 (TALK) |
+
+The touchscreen has an I2C bus of its own, so the profile sets `touch.bus` and the firmware opens it on the second I2C controller. Without touch there is no CANCEL input: BOOT is the only key. Hold the screen or BOOT to talk, and swipe down to cancel.
+
+The battery level and charging state aren't reported yet: the divider ratio on GPIO 1 hasn't been measured, and the charge signal is active high where the latch driver expects active low. Upstream also writes `0xBB 0x38` (VCOM) to the panel; this profile keeps the ST7789 default.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e spotpear-muma -t upload -t monitor
+```
+
+The USB-C port is the S3's own USB Serial/JTAG, used for flashing and the serial console.
+
+### First flash: what to check
+
+1. **Boot log:** `battery latch enabled; no battery voltage reading` and `codecs: speaker ready, microphones ready (es8311 analog)`. The `hg.diag` parts line should read `display st7789, microphone es8311, speaker es8311`, with touch ready on the touch version.
+2. **Screen:** the mascot is upright and not mirrored, and the colors are right (amber accents, not blue). Swapped red and blue means `lcd.bgr` is wrong; a negative-looking image means `lcd.invert` is.
+3. **Brightness:** the settings menu's brightness steps dim the screen, and 100 percent is the brightest. Reversed steps mean `lcd.backlight_invert` is wrong.
+4. **Touch:** holding the screen records, a swipe down cancels, and taps land where you touch.
+5. **Microphone:** hold BOOT and speak; the waves move with your voice and Hermes's transcript is right.
+6. **Speaker:** replies are clear and loud enough (`set volume 80`).
+7. **Power:** unplug USB with the battery in, and the device stays on. **Power off** in settings turns it off.
+
+The pin map follows xiaozhi-esp32's `spotpear/sp-esp32-s3-1.54-muma` board at commit `d91d682`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Elecrow CrowPanel 2.1-inch HMI
 
 Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.

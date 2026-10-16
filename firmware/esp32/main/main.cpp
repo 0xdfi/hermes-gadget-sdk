@@ -257,7 +257,8 @@ extern "C" void app_main(void) {
   }
   g_buttons.begin(board.buttons);
   const bool touch = peripherals_ready && (board.touch.enabled || board.pwr_key.enabled || board.encoder.a >= 0) &&
-                     g_touch.begin(board.touch, board.pwr_key, board.encoder, i2c_bus);
+                     g_touch.begin(board.touch, board.pwr_key, board.encoder,
+                                   board.touch.bus.sda >= 0 ? hgp::i2c::touch_bus(board.touch.bus) : i2c_bus);
 
   hgp::diag::Parts parts;
   parts.display = hal.display == &g_display ? g_display.controller_name()
