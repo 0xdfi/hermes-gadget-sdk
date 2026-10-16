@@ -57,6 +57,8 @@ BOARDS = {
     # The 2.06" 410x502 AMOLED watch (ESP32-S3-Touch-AMOLED-2.06), as the firmware draws it:
     # 486 rows, 8 rows clear of the rounded corners at the top and bottom.
     "sim-410x486": Board("sim-410x486", 410, 486, scroll_buttons=False, touch=True),
+    # A 2.16" square 480x480 AMOLED touch board (e.g. ESP32-S3-Touch-AMOLED-2.16).
+    "sim-480x480": Board("sim-480x480", 480, 480, scroll_buttons=False, touch=True),
     # A 1.9" 320x170 board with no audio hardware (e.g. LilyGO T-Display-S3).
     "sim-320x170-nospeaker": Board("sim-320x170-nospeaker", 320, 170, mic=False, speaker=False,
                                    scroll_buttons=False),

@@ -83,10 +83,10 @@ struct I2sSpeakerConfig {
 };
 
 // Which vendor bring-up table a CO5300 panel needs. The round 466x466 1.75"
-// modules write extra page-2 registers; the rectangular 368x448 1.8" module and
-// the 410x502 2.06" watch use the shorter tables from Waveshare's board support
-// packages.
-enum class AmoledPanel { Co5300_466, Co5300_368, Co5300_410 };
+// modules write extra page-2 registers; the rectangular 368x448 1.8" module,
+// the 410x502 2.06" watch and the 480x480 2.16" board use the shorter tables
+// from Waveshare's board support packages.
+enum class AmoledPanel { Co5300_466, Co5300_368, Co5300_410, Co5300_480 };
 
 // QSPI AMOLED with a CO5300 controller (round 466x466, rectangular 368x448 or 410x502).
 struct AmoledConfig {

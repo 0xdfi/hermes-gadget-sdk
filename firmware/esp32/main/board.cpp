@@ -18,6 +18,8 @@ namespace {
 #define HG_BOARD_NAME "esp32s3-touch-amoled-1.8"
 #elif CONFIG_HG_BOARD_AMOLED_206
 #define HG_BOARD_NAME "esp32s3-touch-amoled-2.06"
+#elif CONFIG_HG_BOARD_AMOLED_216
+#define HG_BOARD_NAME "esp32s3-touch-amoled-2.16"
 #elif CONFIG_HG_BOARD_AIPI_LITE
 #define HG_BOARD_NAME "aipi-lite"
 #elif CONFIG_HG_BOARD_BOX3
@@ -217,6 +219,51 @@ BoardConfig make() {
   b.cancel_label = "Swipe down";
   // The FT3168's short INT pulse is not configured as a light-sleep wake
   // source. Keep the CPU awake to read its report before it expires.
+  return b;
+}
+#elif CONFIG_HG_BOARD_AMOLED_216
+// Waveshare ESP32-S3-Touch-AMOLED-2.16 development board (SKU 33969): square
+// 480x480 AMOLED (CO5300, QSPI), CST9220 touch, ES8311 + ES7210 codecs (two
+// microphones with echo cancellation), AXP2101 PMIC, GPIO18 as KEY3, BOOT.
+// Unlike the 2.06 watch it has no battery (USB only) and no TCA9554 expander.
+// Pins from Waveshare esp32_s3_touch_amoled_2_16 BSP v2.0.1 and schematic.
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.amoled.enabled = true;
+  b.amoled.width = 480;
+  b.amoled.height = 480;    // square glass, no round corners
+  b.amoled.cs = 12;
+  b.amoled.sclk = 38;
+  b.amoled.d0 = 4;
+  b.amoled.d1 = 5;
+  b.amoled.d2 = 6;
+  b.amoled.d3 = 7;
+  b.amoled.rst = 39;
+  b.amoled.gap_x = 0;       // the controller RAM is exactly 480 wide
+  b.amoled.gap_y = 0;
+  b.amoled.panel = AmoledPanel::Co5300_480;
+  b.i2c = {15, 14, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 42;
+  b.codec.bclk = 9;
+  b.codec.ws = 45;
+  b.codec.dout = 8;
+  b.codec.din = 10;
+  b.codec.pa = 46;
+  b.codec.speaker_pa = true;  // the amplifier draws power only while sound plays
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst9217;  // the CST9220 sends the same report
+  b.touch.addr = 0x5A;
+  b.touch.rst = 40;
+  b.touch.int_gpio = 11;
+  b.touch.width = 480;
+  b.touch.height = 480;
+  b.axp2101 = true;
+  b.axp_power_key = true;
+  b.buttons = {0, -1, -1, -1};  // BOOT is TALK
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
   return b;
 }
 #elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
