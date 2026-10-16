@@ -233,10 +233,8 @@ void App::settings_model() {
         if (!battery_estimate_enabled_ && !p.battery_percent && p.battery_present != false &&
             p.battery_mv && *p.battery_mv >= 2000 && *p.battery_mv <= 4500)
           m.body += "set battery_estimate liion\nBattery must be fitted; charging affects estimate.\n";
-      }
-      if (battery_estimate_enabled_) {
-        if (!m.body.empty() && m.body.back() != '\n') m.body += '\n';
-        m.body += "Battery must be fitted; charging affects estimate.\n";
+        else if (battery_is_estimated())
+          m.body += "Battery must be fitted; charging affects estimate.\n";
       }
     if (battery_readable()) {  // nothing to choose when no percentage can appear
       static const char* const kShown[] = {"Icon", "Percent", "Both", "Off"};
