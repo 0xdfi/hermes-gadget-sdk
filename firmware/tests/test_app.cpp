@@ -434,6 +434,38 @@ TEST("app: a recording whose end can't be sent says so instead of waiting for a 
   CHECK(r.app.screen() == hg::Screen::Thinking);
 }
 
+TEST("app: tap mode hears speech at the board's microphone level") {
+  // A quiet microphone (the AMOLED-2.06's codec) gives speech around 300 RMS: under the default
+  // floor that is no speech at all, so the board sets a lower one.
+  auto talk_quietly = [](Rig& r) {
+    r.fake.kv["talk_mode"] = "tap";
+    r.bring_online(true);
+    r.app.on_button(hg::Button::Talk, true);
+    r.app.on_button(hg::Button::Talk, false);
+    std::vector<int16_t> speech(1600), silence(1600, 20);  // 100 ms blocks
+    for (size_t i = 0; i < speech.size(); ++i) speech[i] = (i / 8) % 2 ? 300 : -300;
+    for (int i = 0; i < 10; ++i) {
+      r.app.on_mic_samples(speech.data(), speech.size());
+      r.advance(100);
+    }
+    for (int i = 0; i < 60 && r.fake.mic_on; ++i) {
+      r.app.on_mic_samples(silence.data(), silence.size());
+      r.advance(100);
+    }
+  };
+  hg::DeviceProfile quiet = Rig::profile("ws://hermes.local:8765/gadget");
+  quiet.vad_min_rms = 200;
+  Rig r(quiet);
+  talk_quietly(r);
+  CHECK(r.fake.last("audio.end") != nullptr);
+  CHECK(r.app.screen() == hg::Screen::Thinking);
+
+  Rig d;  // the default floor
+  talk_quietly(d);
+  CHECK(d.fake.last("audio.end") == nullptr);
+  CHECK(d.fake.last("audio.cancel") != nullptr);
+}
+
 TEST("app: a short tap is discarded instead of sent") {
   Rig r;
   r.bring_online(true);

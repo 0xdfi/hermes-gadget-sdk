@@ -83,11 +83,12 @@ struct I2sSpeakerConfig {
 };
 
 // Which vendor bring-up table a CO5300 panel needs. The round 466x466 1.75"
-// modules write extra page-2 registers; the rectangular 368x448 1.8" module uses
-// the shorter table from Waveshare's board support package.
-enum class AmoledPanel { Co5300_466, Co5300_368 };
+// modules write extra page-2 registers; the rectangular 368x448 1.8" module and
+// the 410x502 2.06" watch use the shorter tables from Waveshare's board support
+// packages.
+enum class AmoledPanel { Co5300_466, Co5300_368, Co5300_410 };
 
-// QSPI AMOLED with a CO5300 controller (round 466x466 or rectangular 368x448).
+// QSPI AMOLED with a CO5300 controller (round 466x466, rectangular 368x448 or 410x502).
 struct AmoledConfig {
   bool enabled = false;
   uint16_t width = 466, height = 466;
@@ -118,6 +119,7 @@ struct CodecAudioConfig {
   int pa = -1;               // speaker amplifier enable, active high
   float amp_supply_v = 5.0f;  // amplifier supply; the ES8311 driver sets its output level from it
   float mic_gain_db = 24.0f;
+  float vad_min_rms = 500.0f;  // tap mode's speech floor for this mic (DeviceProfile::vad_min_rms)
   SpeakerCodec speaker = SpeakerCodec::Es8311;
   MicCodec mic = MicCodec::Es7210;
   bool stereo32 = false;      // two 32-bit I2S slots per frame instead of one 16-bit slot

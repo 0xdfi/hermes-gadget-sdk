@@ -41,10 +41,12 @@ bool TouchInput::begin(const TouchConfig& touch, const ExpanderKeyConfig& key, c
     esp_lcd_touch_config_t cfg = {};
     cfg.x_max = touch.width;
     cfg.y_max = touch.height;
-    cfg.rst_gpio_num = GPIO_NUM_NC;  // The board's expander already released reset.
+    // CoreS3's expander has already released reset; the 2.06" watch wires it to a GPIO.
+    cfg.rst_gpio_num = touch.rst >= 0 ? static_cast<gpio_num_t>(touch.rst) : GPIO_NUM_NC;
     cfg.int_gpio_num = GPIO_NUM_NC;
     if (esp_lcd_new_panel_io_i2c(bus, &io_cfg, &io) == ESP_OK &&
         esp_lcd_touch_new_i2c_ft5x06(io, &cfg, &managed_touch_) != ESP_OK) esp_lcd_panel_io_del(io);
+    if (managed_touch_ && touch.int_gpio >= 0) gate_on_int();
   } else if (touch.enabled && touch.controller == TouchController::Box3) {
     begin_box_touch(bus);
   } else if (touch.enabled) {
@@ -195,14 +197,55 @@ bool TouchInput::sample_encoder(int& direction) {
   return true;
 }
 
+// The 2.06's FT3168 dozes after idling: it then refuses most reads (every 20 ms poll failed for
+// seconds at a time, each logging an error), and the touch that wakes it shows up only as one
+// short INT pulse whose report is gone ~20 ms later (a polled task lost that tap). Its power
+// registers (G_CTRL 0x86, the monitor delay 0x87) don't stay written. So, with INT wired, an
+// interrupt on its falling edge wakes the task to read at once, and without a finger the chip is
+// read only after an edge.
+void TouchInput::gate_on_int() {
+  gpio_config_t pin = {};
+  pin.pin_bit_mask = 1ULL << touch_.int_gpio;
+  pin.mode = GPIO_MODE_INPUT;
+  pin.pull_up_en = GPIO_PULLUP_ENABLE;
+  pin.intr_type = GPIO_INTR_NEGEDGE;
+  if (gpio_config(&pin) != ESP_OK || !gpio_isr_service() ||
+      gpio_isr_handler_add(static_cast<gpio_num_t>(touch_.int_gpio), &TouchInput::on_int, this) != ESP_OK) {
+    ESP_LOGW(TAG, "touch INT on GPIO %d unavailable; polling the chip", touch_.int_gpio);
+    return;
+  }
+  int_gated_ = true;
+  ESP_LOGI(TAG, "touch read on INT (GPIO %d)", touch_.int_gpio);
+}
+
+void IRAM_ATTR TouchInput::on_int(void* arg) {
+  auto* self = static_cast<TouchInput*>(arg);
+  self->int_pending_ = true;
+  BaseType_t woken = pdFALSE;
+  if (self->task_) vTaskNotifyGiveFromISR(static_cast<TaskHandle_t>(self->task_), &woken);
+  if (woken) portYIELD_FROM_ISR();
+}
+
+// Without INT every poll reads; with it, only a pending report or a finger still down does.
+bool TouchInput::may_read(bool was_touching) {
+  return !int_gated_ || int_pending_.exchange(false) || was_touching;
+}
+
+// Waits out the poll period, or less: an INT edge ends the wait at once.
+void TouchInput::wait(uint32_t ms) {
+  if (int_gated_) ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
+  else vTaskDelay(pdMS_TO_TICKS(ms));
+}
+
 void TouchInput::task(void* arg) {
   auto* self = static_cast<TouchInput*>(arg);
+  self->task_ = xTaskGetCurrentTaskHandle();
   bool was_touching = false, key_down = false;
   hg::Cst816Fault fault;
   TouchSample last{};
   for (;;) {
     TouchSample s{};
-    if (self->has_touch() && self->read_touch(s)) {
+    if (self->has_touch() && self->may_read(was_touching) && self->read_touch(s)) {
       s.y = static_cast<int16_t>(s.y - self->touch_.offset_y);
       fault.valid();
       // Every sample while the finger is down (gestures need the motion), plus the lift.
@@ -235,7 +278,7 @@ void TouchInput::task(void* arg) {
     }
     // Dozing (screen off, on battery), poll less often so the chip can light-sleep
     // between polls; a touch still wakes the screen within about 50 ms.
-    vTaskDelay(pdMS_TO_TICKS(EspSystem::dozing_now() ? kDozePollMs : kPollMs));
+    self->wait(EspSystem::dozing_now() ? kDozePollMs : kPollMs);
   }
 }
 
