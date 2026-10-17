@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_psram.h"
+#include "esp_system.h"
 #include "hg/touch.hpp"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -345,6 +346,12 @@ extern "C" void app_main(void) {
     }
     // A loss whose WsClosed event was dropped; harmless if it was delivered too.
     if (g_transport.take_lost()) app.on_transport_closed("disconnected");
+    // Waiting would leave the device answering nothing until someone resets it.
+    if (g_transport.stuck()) {
+      ESP_LOGE(TAG, "the WebSocket send task is stuck; restarting");
+      vTaskDelay(pdMS_TO_TICKS(100));  // let the log line out
+      esp_restart();
+    }
     g_buttons.poll(app);
     g_wifi.tick(app, g_system.now_ms());
     if (g_gestures) g_gestures->tick(g_system.now_ms());

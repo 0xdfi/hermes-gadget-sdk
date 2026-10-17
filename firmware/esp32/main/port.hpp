@@ -154,6 +154,9 @@ class WsTransport final : public hg::Transport {
   // True once if the current connection was lost. Backs up the WsClosed event,
   // which the client may post from the app task itself while the queue is full.
   bool take_lost() { return gens_.take_lost(); }
+  // True when the send task has been stuck on one item for hg::ws::kStuckMs, or
+  // couldn't take a client to close: the transport can't recover without a restart.
+  bool stuck() const;
 
  private:
   static void on_event(void* arg, const char* base, int32_t id, void* data);
@@ -164,6 +167,8 @@ class WsTransport final : public hg::Transport {
   esp_websocket_client_handle_t client_ = nullptr;
   QueueHandle_t tx_ = nullptr;
   hg::ws::Generations gens_;
+  hg::ws::TxWatch watch_;
+  std::atomic<bool> handoff_failed_{false};
   std::string url_, subprotocol_;
   // Fragment reassembly, WebSocket task only: an old client's task can still be
   // delivering a frame after close(), so connect() leaves this alone. Each
