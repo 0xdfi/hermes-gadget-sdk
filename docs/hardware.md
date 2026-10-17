@@ -387,7 +387,7 @@ The CO5300 start-up table and the pin map come from Waveshare's [board support p
 
 ## ESP32-S3-Touch-AMOLED-2.16
 
-Board option `esp32s3-touch-amoled-216`, for Waveshare's 2.16" AMOLED touch development board (SKU 33969): an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a square 480×480 AMOLED, two microphones with echo-cancellation circuitry, a speaker output, an AXP2101 PMIC, an IMU, an RTC and a TF slot. There is no battery; the board is USB powered. Nothing needs wiring.
+Board option `esp32s3-touch-amoled-216`, for Waveshare's 2.16" AMOLED touch development board (SKUs 33969 and 33970, the -EN version): an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a square 480×480 AMOLED, two microphones with echo-cancellation circuitry, a speaker output, an AXP2101 PMIC with an MX1.25 header for a 3.7 V lithium battery, an IMU, an RTC and a TF slot. Nothing needs wiring.
 
 | Part | Chip | Connection |
 |---|---|---|
@@ -395,15 +395,15 @@ Board option `esp32s3-touch-amoled-216`, for Waveshare's 2.16" AMOLED touch deve
 | Touch | CST9220 | I2C 0x5A, read with the CST9217 report; reset 40; INT 11; y mirrored, then x and y swapped, to match the display's MADCTL 0xA0, as in Waveshare's BSP |
 | Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 42, BCLK 9, WS 45, DOUT 8; amplifier enable 46 |
 | Microphones | ES7210 | I2C 0x40; two microphones plus echo cancellation; I2S DIN 10 |
-| Power | AXP2101 | I2C 0x34; USB detection and local power-off; PWR short press |
+| Power | AXP2101 | I2C 0x34; battery/USB readings, PWR short press and local power-off; charging and rails keep their defaults |
 | I2C bus | | SDA 15, SCL 14, 400 kHz |
-| GPIO18 key | | GPIO 18 (not wired as a gadget control) |
+| KEY3 | | GPIO 18 (not wired as a gadget control) |
 | BOOT key | | GPIO 0 |
 | Not used | QMI8658 IMU (I2C 0x6B), PCF85063 RTC (0x51), TF card | |
 
-The board has no battery rail, so no AXP2101 output is switched for audio; the codecs and amplifier run from the always-on 3.3 V rail. This port stays **experimental** until a full [physical verification report](hardware-validation.md) is recorded for the exact board.
+No AXP2101 output is switched for audio, as in Waveshare's BSP, which does not configure the PMIC. Battery operation has not been tested. This port stays **experimental** until a full [physical verification report](hardware-validation.md) is recorded for the exact board.
 
-**Controls.** Hold the screen or BOOT to talk, tap to answer "yes", swipe down to cancel. GPIO18 is not wired as a gadget control in this profile.
+**Controls.** Hold the screen or BOOT to talk, tap to answer "yes", swipe down to cancel. A short press on PWR turns the screen off and on. KEY3 (GPIO18) is not wired as a gadget control in this profile.
 
 **Build and flash it** with PlatformIO:
 
@@ -422,7 +422,7 @@ The USB-C port is the S3's own USB Serial/JTAG, used for both flashing and the s
 4. **Microphones:** say something. The waves move with your voice and the transcript is right; in tap mode, a sentence spoken at arm's length starts and ends the recording.
 5. **Speaker:** replies are clear and loud enough (`set volume 80`), with no hiss between replies.
 
-The CO5300 start-up table and the pin map come from Waveshare's [ESP32-S3-Touch-AMOLED-2.16 board support package](https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-2.16) (v2.0.1); see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+The CO5300 start-up table and the pin map come from Waveshare's [board support package](https://github.com/waveshareteam/Waveshare-ESP32-components/tree/63ac675334db62509082e182ff900bf60f21f009/bsp/esp32_s3_touch_amoled_2_16) 2.0.1 at commit `63ac675`, checked against the [product documentation](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-2.16); see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
 ## Xorigin AIPI Lite
 
