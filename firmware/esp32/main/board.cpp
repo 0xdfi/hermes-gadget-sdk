@@ -20,6 +20,8 @@ namespace {
 #define HG_BOARD_NAME "esp32s3-touch-amoled-2.06"
 #elif CONFIG_HG_BOARD_AIPI_LITE
 #define HG_BOARD_NAME "aipi-lite"
+#elif CONFIG_HG_BOARD_SPOTPEAR_MUMA
+#define HG_BOARD_NAME "spotpear-esp32-s3-1.54-muma"
 #elif CONFIG_HG_BOARD_BOX3
 #define HG_BOARD_NAME "esp32-s3-box-3"
 #elif CONFIG_HG_BOARD_CORES3
@@ -442,6 +444,56 @@ BoardConfig make() {
   b.buttons = {42, 1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "PWR";
+  return b;
+}
+#elif CONFIG_HG_BOARD_SPOTPEAR_MUMA
+// Spotpear ESP32-S3-1.54 "muma": ESP32-S3R8, 16 MB flash, 1.54" 240x240 ST7789
+// over SPI, one ES8311 codec for both directions, CST816D touch on its own I2C
+// bus, BOOT key and a power latch on GPIO3.
+// Pins: xiaozhi-esp32 board spotpear/sp-esp32-s3-1.54-muma (upstream mapping).
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.lcd.enabled = true;
+  b.lcd.width = 240;
+  b.lcd.height = 240;
+  b.lcd.swap_xy = false;
+  b.lcd.mirror_x = false;
+  b.lcd.mirror_y = false;
+  b.lcd.invert = true;
+  b.lcd.gap_x = 0;
+  b.lcd.gap_y = 0;
+  b.lcd.mosi = 2;
+  b.lcd.sclk = 4;
+  b.lcd.cs = 5;
+  b.lcd.dc = 47;
+  b.lcd.rst = 38;
+  b.lcd.backlight = 42;
+  b.lcd.backlight_invert = true;  // upstream drives the backlight PWM inverted
+  b.i2c = {15, 14, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 16;
+  b.codec.bclk = 9;
+  b.codec.ws = 45;
+  b.codec.dout = 8;
+  b.codec.din = 10;
+  b.codec.pa = 46;
+  b.codec.mic = MicCodec::Es8311;
+  // The touch controller sits on a second I2C bus. Only the touch version has
+  // it; the driver reports the touchscreen absent when nothing answers.
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;
+  b.touch.addr = 0x15;
+  b.touch.bus = {11, 7, 400000};
+  b.touch.rst = 6;
+  b.touch.width = b.touch.height = 240;
+  // GPIO3 high keeps the battery path on; upstream lowers it to shut down. The
+  // battery divider on GPIO1 and the GPIO41 charge signal (active high, where
+  // LatchPower expects active low) are not calibrated yet, so neither is read.
+  b.latch_power = {true, -1, 3, -1};
+  b.buttons = {0, -1, -1, -1};
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
   return b;
 }
 #elif CONFIG_HG_BOARD_CROWPANEL_21
