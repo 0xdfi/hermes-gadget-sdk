@@ -224,9 +224,9 @@ BoardConfig make() {
 #elif CONFIG_HG_BOARD_AMOLED_216
 // Waveshare ESP32-S3-Touch-AMOLED-2.16 development board (SKU 33969): square
 // 480x480 AMOLED (CO5300, QSPI), CST9220 touch, ES8311 + ES7210 codecs (two
-// microphones with echo cancellation), AXP2101 PMIC, GPIO18 as KEY3, BOOT.
-// Unlike the 2.06 watch it has no battery (USB only) and no TCA9554 expander.
-// Pins from Waveshare esp32_s3_touch_amoled_2_16 BSP v2.0.1 and schematic.
+// microphones with echo cancellation), AXP2101 PMIC with a battery header,
+// PWR on the AXP2101, GPIO18 as KEY3, BOOT. No TCA9554 expander.
+// Pins from Waveshare esp32_s3_touch_amoled_2_16 BSP 2.0.1 (commit 63ac675).
 BoardConfig make() {
   BoardConfig b{};
   b.name = kBoardName;
