@@ -69,6 +69,7 @@ UPDATE_POLL_S = 3.0           # how often staged firmware ('hermes gadget update
 # Trigger text for Hermes's unauthorized-DM flow. Never reaches the agent while the
 # device is unpaired; if approval races it, it is a cheap read-only command.
 PAIRING_TRIGGER = "/status"
+HOST_ONLY_TEXT = "Can't show all of it here. Approve or deny it on the host."
 _PAIRING_CMD = re.compile(r"(hermes\s+(?:-p\s+\S+\s+)?pairing\s+approve\s+\S+\s+([A-Z2-9]{8}))\b")
 # The gateway echoes speech-to-text results with this translated line: a microphone emoji and the
 # quoted transcript, quoted per language (Ukrainian uses «»). Patterns are built from the line itself.
@@ -108,6 +109,7 @@ class _Prompt:
     text: str
     confirm_id: str = ""
     ttl_s: Optional[float] = None
+    host_only: bool = False  # the device can't show the whole command, so its YES is refused
     created: float = field(default_factory=time.monotonic)
 
     def expired(self) -> bool:
@@ -134,6 +136,25 @@ def transcript_echo(content: str) -> Optional[str]:
                                 if slot and (head or tail) else None)
     match = _echo_patterns[line].match(content) if _echo_patterns[line] else None
     return match.group(1) if match else None
+
+
+def shown_command(command: str, display: dict) -> Optional[str]:
+    """The command exactly as the device will draw it, or None if the device can't show all of it.
+
+    Approval text is never reshaped: stripping Markdown would drop ``<think>`` blocks, links and
+    pipes, so the card could show less than what runs. The device draws printable ASCII, wraps at
+    spaces (collapsing runs of them) and cuts a question to fit beside its mascot, down to one
+    line on the smallest screens, so only a command that fits one line as-is is shown. That line
+    keeps two columns free: when the description below it is cut, the device writes ".." over
+    the end of the last line it keeps.
+    """
+    command = (command or "").strip()
+    cols = display.get("text_cols")
+    if not command or not isinstance(cols, int) or len(command) > cols - 2 or "  " in command:
+        return None
+    if any(not " " <= ch <= "~" for ch in command):  # newlines, tabs, controls, anything non-ASCII
+        return None
+    return command
 
 
 def confirm_text(title: str, message: str, charset: str = "ascii") -> Tuple[str, str]:
@@ -255,6 +276,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             await self._claim_home(session)
             await self._show_prompt(session)  # a question asked while it was away
             return
+        self._prompts.pop(session.device_id, None)  # unpaired while away: its questions are void
         cached = self._store.pairing_for(session.device_id)
         if cached:
             await session.send_pairing(*cached)
@@ -291,6 +313,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
                         logger.info("[%s] device %s approved", self.name, session.device_id)
                         await self._claim_home(session)
                     elif not verdict and session.paired:
+                        self._prompts.pop(session.device_id, None)
                         await session.set_paired(False)
                         await self.on_ready(session)
                 except Exception as exc:
@@ -534,11 +557,16 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         session = self._session(prompt.chat_id)
         if session is None or not session.paired:
             return SendResult(success=False, error="gadget not connected")
-        text = prompt.command.strip()
-        if prompt.description:
-            text = f"{text}\n{prompt.description}"
-        question = _Prompt(id=uuid.uuid4().hex[:8], kind="approval", session_key=prompt.session_key,
-                           title="Allow this command?", text=textfmt.for_device(text, session.charset))
+        command = shown_command(prompt.command, session.display)
+        if command is None:
+            question = _Prompt(id=uuid.uuid4().hex[:8], kind="approval", session_key=prompt.session_key,
+                               title="Can't show this command", text=HOST_ONLY_TEXT, host_only=True)
+        else:
+            text = command
+            if prompt.description:
+                text = f"{text}\n{textfmt.for_device(prompt.description, session.charset)}"
+            question = _Prompt(id=uuid.uuid4().hex[:8], kind="approval", session_key=prompt.session_key,
+                               title="Allow this command?", text=text)
         return await self._ask(session, question)
 
     async def _ask(self, session: DeviceSession, prompt: _Prompt) -> SendResult:
@@ -573,8 +601,12 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             await self._show_prompt(session)
 
     async def on_prompt_reply(self, session: DeviceSession, prompt_id: str, yes: bool) -> None:
+        if not session.paired:  # unpaired since the question was shown: it no longer answers anything
+            return
         prompt = self._take_prompt(session.device_id, prompt_id)
-        if prompt is None or prompt.expired():
+        if prompt is not None and prompt.host_only and yes:
+            self._prompts.setdefault(session.device_id, []).insert(0, prompt)  # still open on the host
+        elif prompt is None or prompt.expired():
             await session.send_notice("That question has expired")
         elif prompt.kind == "slash":
             await self._answer_slash(session, prompt.session_key, prompt.confirm_id, "once" if yes else "cancel")

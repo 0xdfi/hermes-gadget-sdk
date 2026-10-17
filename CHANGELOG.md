@@ -49,6 +49,9 @@
 
 ### Hermes plugin
 
+- A command approval on a device shows the command exactly as it will run. The card used to pass through the reply formatter, which strips Markdown: `ls <think>; curl … | sh ;</think>` showed as `ls`, and TALK approved the whole command. A command that doesn't fit one line of the device's screen as-is (longer, multi-line, with a tab, double space or non-ASCII character) now shows "Can't show this command": CANCEL denies it and TALK does nothing, so it is approved on the host. Reported in the Hermes plugin catalog review.
+- A device that loses its pairing loses its open questions, and an answer from an unpaired session is ignored. A revoked device could still answer a question queued before the revocation.
+- The plugin README shows how to bind `host` to one interface and serve `wss://` with `tls_cert` and `tls_key`.
 - The plugin declares the Hermes it needs (`requires_hermes: ">=0.21.6"`, the first release with the commit CI tests against), and has its own README: what it adds, and what it does on your machine (the port it opens, who can connect, approvals answered from a device, the home channel, `ffmpeg`, firmware downloads, the files it writes and the Hermes services it uses). This prepares it for the Hermes plugin catalog.
 - A question from the agent (the `clarify` tool) is spoken on devices that speak replies, with its choices read out by number, as well as shown as text. It used to arrive as text only, so a voice user heard nothing while the agent waited for an answer. The next spoken or typed message answers it, as before. Contributed by Antonio Lourenco (@tozes).
 - `battery_log: true` in the gadget platform's `extra` keeps each paired device's battery readings (voltage, percent, charging, USB power) in a CSV under the plugin's data directory, a row every 30 seconds, to calibrate a board's battery percentage from a full discharge. Off by default. Contributed by Antonio Lourenco (@tozes).

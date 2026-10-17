@@ -51,13 +51,29 @@ Read this before you install.
 
 - **Opens a network port.** The gateway listens for gadgets on WebSocket port 8765 at `/gadget`, on all interfaces (`0.0.0.0`) by default. Set `host` in the platform's config to narrow it. Traffic is plain `ws://` unless you set `tls_cert` and `tls_key`. For access outside your network, the [remote access guide](../docs/tailscale-funnel.md) shows a setup that adds TLS.
 - **Who can connect.** A new device must be approved with a Hermes pairing code (`hermes gadget pair`), unless you list its id in `GADGET_ALLOWED_USERS`. `GADGET_ACCESS_TOKEN` adds a shared token every device must present. `GADGET_ALLOW_ALL_USERS` skips pairing for any device and is meant for development only. Secrets are read through Hermes's profile-scoped secret helpers.
-- **Answers approvals from the device.** When the agent asks to run a dangerous command, a paired gadget shows the question, and its buttons answer it as **allow once** or **deny**. A paired device can therefore approve commands for its own chat. It never grants "always".
+- **Answers approvals from the device.** When the agent asks to run a dangerous command, a paired gadget shows the command exactly as it will run, and its buttons answer it as **allow once** or **deny**. A paired device can therefore approve commands for its own chat. It never grants "always". A command that does not fit one line of the device's screen as-is can only be denied there; approve it on the host.
 - **Sets a home channel.** By default (`auto_home: true`) the first approved device becomes the gadget platform's home channel, so scheduled messages for that platform go to it.
 - **Runs `ffmpeg` locally** to convert spoken replies that are not plain WAV, when `ffmpeg` is installed.
 - **Downloads firmware only when you ask.** `hermes gadget update <device> --latest` downloads the newest release's `manifest.json` and the board's image from this repository's GitHub releases, checks the image's size and SHA-256 against that manifest, and sends it to the device. Release files carry GitHub build provenance attestations (`gh attestation verify <file> --repo Adolanium/hermes-gadget-sdk`). Without `--latest`, it sends a file you name.
 - **Writes only its own data**, under `<hermes home>/plugin-data/gadget/`: the device list (`devices.json`), staged firmware updates while they install, and, only with `battery_log: true`, a CSV of each device's battery readings.
 - **Uses Hermes's services**, which may be cloud services depending on your Hermes setup: speech-to-text for what you say, text-to-speech for replies, and Hermes's image cache when the agent shows an image on a gadget. The plugin itself sends nothing else off your machine. There is no telemetry.
 - **Runs inside the gateway.** No separate background process. It stops when the gateway stops.
+
+## Limit who can reach the port
+
+On a home network, bind the platform to the interface your gadgets use, and serve `wss://` if anything else shares that network. In `~/.hermes/config.yaml`:
+
+```yaml
+platforms:
+  gadget:
+    enabled: true
+    extra:
+      host: 192.168.1.20          # this machine's LAN address; 127.0.0.1 for a local tunnel or simulator only
+      tls_cert: /path/cert.pem    # with tls_key, the gateway serves wss://
+      tls_key: /path/key.pem
+```
+
+Point each gadget at `wss://<host>:8765/gadget`; the device must trust the certificate's issuer. Restart the gateway after the change. The [remote access guide](../docs/tailscale-funnel.md) sets up TLS through Tailscale instead.
 
 ## Compatibility
 

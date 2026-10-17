@@ -164,7 +164,7 @@ Hermes asks before some actions: destructive commands such as `/new`, a costly m
 - The device shows the title and text with two answers. The reference firmware maps TALK to yes and CANCEL to no, and ignores presses in the first 0.6 s so a press meant for something else doesn't answer it.
 - The device answers with `prompt.reply` exactly once, or not at all if the question expires (`ttl_s`, when present) or is withdrawn with `prompt.close`.
 - The server sends one question at a time. A question asked while a device was offline is sent again when it reconnects.
-- Text is shaped like replies: short, plain and already folded to the device's charset.
+- Text is shaped like replies: short, plain and already folded to the device's charset. A dangerous-command approval is the exception: its text is the command as it will run, unchanged, or a notice to approve on the host when the command doesn't fit one line of `text_cols`, less two columns, as-is. The server ignores a yes to that notice.
 
 ### Device actions
 
