@@ -13,6 +13,7 @@
 
 | Symptom | What to check |
 |---|---|
+| `hermes plugins install` is blocked with a "dangerous" verdict | Install from the `plugin` directory: use the command in [Connect Hermes](connect-hermes.md#1-install-the-plugin). The repository root is not a plugin, and its scan includes the Raspberry Pi installer |
 | Device stays on Connecting | Use the URL from `hermes gadget info`. Keep the gateway running and allow its port through the host firewall. A board cannot use `127.0.0.1` to reach another computer |
 | Board cannot join Wi-Fi | Check the password and use a 2.4 GHz network |
 | Screen stays dark but the USB console answers | The display failed to start and the gadget runs without it. The boot log names the call that failed (`... failed: ESP_ERR_...`); check the wiring, the panel revision and the board profile |
