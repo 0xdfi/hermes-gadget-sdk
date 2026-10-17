@@ -142,6 +142,9 @@ struct TouchConfig {
   bool swap_xy = false;  // CST9217 report: exchange x and y after mirroring (esp_lcd_touch order)
   int16_t offset_y = 0;  // subtracted from y when the UI starts below the panel's first row
   TouchController controller = TouchController::Cst9217;
+  // The touch controller's own I2C bus; unset = the board's shared bus. When set,
+  // an expander key (pwr_key) is read on this bus too.
+  I2cBusConfig bus{};
 };
 
 // A key whose level is read from a TCA9554 or PCF8574 I/O expander input (e.g.
