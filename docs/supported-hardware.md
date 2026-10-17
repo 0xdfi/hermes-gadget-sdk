@@ -13,6 +13,7 @@ Hardware ports remain experimental until the [verification table](hardware-valid
 | [Waveshare ESP32-S3-Touch-AMOLED-1.75C](hardware.md#esp32-s3-touch-amoled-175c) | Hold the screen to talk; PWR turns the screen off and on | Onboard microphones and speaker |
 | [Waveshare ESP32-S3-Touch-AMOLED-1.8 (V2)](hardware.md#esp32-s3-touch-amoled-18) | Hold the screen to talk | Onboard analog microphone; speaker output |
 | [Waveshare ESP32-S3-Touch-AMOLED-2.06 (watch)](hardware.md#esp32-s3-touch-amoled-206) | Hold the screen or BOOT to talk; PWR turns the screen off and on | Onboard microphones and speaker |
+| [Waveshare ESP32-S3-Touch-AMOLED-2.16](hardware.md#esp32-s3-touch-amoled-216) | Hold the screen or BOOT to talk; PWR turns the screen off and on | Onboard microphones; speaker output |
 | [Waveshare ESP32-S3-Touch-LCD-1.85C V2](hardware.md#waveshare-esp32-s3-touch-lcd-185c-v2) | Hold the screen or BOOT to talk | Onboard microphones; speaker output, with a speaker in the speaker-box version |
 | [Xorigin AIPI Lite](hardware.md#xorigin-aipi-lite) | Hold BOOT to talk; the power key cancels | Onboard microphone and speaker |
 | [Spotpear ESP32-S3-1.54 muma](hardware.md#spotpear-esp32-s3-154-muma) | Hold the screen or BOOT to talk; swipe down to cancel | Onboard microphone and speaker |
