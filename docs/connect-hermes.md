@@ -15,6 +15,10 @@ Choose **Hermes Gadget**. Restart the gateway when setup asks. Setup prints a de
 
 The command installs from `main`. To match a firmware release, use the command in the [release notes](https://github.com/Adolanium/hermes-gadget-sdk/releases), which pins the plugin with `--ref`.
 
+Install from the `plugin` directory, as these commands do, not from the repository root. Hermes scans everything under the address you give it before it installs. The root is not a plugin, and it also holds the Raspberry Pi system installer (`linux/install.sh`), which must run as root and writes under `/etc`. Hermes rates the root "dangerous" and refuses to install it, even with `--force`.
+
+To see the scan result before you install, clone the repository and run `hermes plugins validate hermes-gadget-sdk/plugin`. Its **security scan** line shows the verdict that `hermes plugins install` acts on. When an install needs confirmation or is blocked, Hermes lists each finding with its file and line.
+
 ## 2. Connect a device
 
 For hardware, follow [Set up a board](setup-board.md) and use the installer link from `hermes gadget info`.
