@@ -9,7 +9,7 @@ hermes plugins install https://github.com/Adolanium/hermes-gadget-sdk/tree/main/
 hermes gateway setup
 ```
 
-Choose **Hermes Gadget**. Restart the gateway when setup asks. Setup prints a device address and an installer link with that address filled in.
+The plugin needs Hermes Agent 0.21.6 or newer. Choose **Hermes Gadget**. Restart the gateway when setup asks. Setup prints a device address and an installer link with that address filled in.
 
 **You know it worked when:** `hermes gadget info` shows the gadget configuration and device URL. Keep the gateway running so devices can connect.
 
