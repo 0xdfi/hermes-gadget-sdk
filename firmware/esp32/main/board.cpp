@@ -259,6 +259,10 @@ BoardConfig make() {
   b.touch.int_gpio = 11;
   b.touch.width = 480;
   b.touch.height = 480;
+  // MADCTL 0xA0 turns the picture; the BSP turns touch to match with
+  // mirror_y then swap_xy (bsp_display_start's touch_flags).
+  b.touch.mirror_y = true;
+  b.touch.swap_xy = true;
   b.axp2101 = true;
   b.axp_power_key = true;
   b.buttons = {0, -1, -1, -1};  // BOOT is TALK

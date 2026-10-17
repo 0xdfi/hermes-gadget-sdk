@@ -139,6 +139,7 @@ struct TouchConfig {
   int int_gpio = -1;  // touch INT line; -1 when not wired (driver polls instead)
   uint16_t width = 0, height = 0;
   bool mirror_x = false, mirror_y = false;
+  bool swap_xy = false;  // CST9217 report: exchange x and y after mirroring (esp_lcd_touch order)
   int16_t offset_y = 0;  // subtracted from y when the UI starts below the panel's first row
   TouchController controller = TouchController::Cst9217;
 };

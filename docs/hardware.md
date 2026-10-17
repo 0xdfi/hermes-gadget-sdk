@@ -392,7 +392,7 @@ Board option `esp32s3-touch-amoled-216`, for Waveshare's 2.16" AMOLED touch deve
 | Part | Chip | Connection |
 |---|---|---|
 | Display | CO5300, QSPI | CS 12, SCLK 38, D0–D3 4/5/6/7, reset 39; full 480×480 window, no column offset |
-| Touch | CST9220 | I2C 0x5A, read with the CST9217 report; reset 40; INT 11; coordinate mirroring is handled by the controller's own settings |
+| Touch | CST9220 | I2C 0x5A, read with the CST9217 report; reset 40; INT 11; y mirrored, then x and y swapped, to match the display's MADCTL 0xA0, as in Waveshare's BSP |
 | Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 42, BCLK 9, WS 45, DOUT 8; amplifier enable 46 |
 | Microphones | ES7210 | I2C 0x40; two microphones plus echo cancellation; I2S DIN 10 |
 | Power | AXP2101 | I2C 0x34; USB detection and local power-off; PWR short press |
