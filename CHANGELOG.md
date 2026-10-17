@@ -49,6 +49,7 @@
 
 ### Hermes plugin
 
+- The plugin declares the Hermes it needs (`requires_hermes: ">=0.21.6"`, the first release with the commit CI tests against), and has its own README: what it adds, and what it does on your machine (the port it opens, who can connect, approvals answered from a device, the home channel, `ffmpeg`, firmware downloads, the files it writes and the Hermes services it uses). This prepares it for the Hermes plugin catalog.
 - A question from the agent (the `clarify` tool) is spoken on devices that speak replies, with its choices read out by number, as well as shown as text. It used to arrive as text only, so a voice user heard nothing while the agent waited for an answer. The next spoken or typed message answers it, as before. Contributed by Antonio Lourenco (@tozes).
 - `battery_log: true` in the gadget platform's `extra` keeps each paired device's battery readings (voltage, percent, charging, USB power) in a CSV under the plugin's data directory, a row every 30 seconds, to calibrate a board's battery percentage from a full discharge. Off by default. Contributed by Antonio Lourenco (@tozes).
 - Spoken replies stay paced after the text-to-speech producer pauses. A sign error in the hub's stall handling let the rest of a reply go out in one burst after the first pause, which could overflow a device's speaker buffer. A fake-clock test now holds every frame within the playback lead, before and after a stall.
@@ -58,6 +59,7 @@
 
 ### Tools and documentation
 
+- Release files (firmware images, `manifest.json`, `SHA256SUMS`, the license archive and the Linux package) now carry GitHub build provenance attestations, so a download can be checked with `gh attestation verify <file> --repo Adolanium/hermes-gadget-sdk`. The release notes say so.
 - The website (home page, installer and guides) takes the look of the Hermes plugin art: midnight indigo with a dot screen, periwinkle text, square window frames, Georgia headings over a monospace body, and a dithered banner of Hermes listening to a gadget. Guides switch from the light paper theme to the same dark theme. Layout, links and the installer flow are unchanged.
 - The Hermes guide explains that the plugin installs from the `plugin` directory, and why installing the repository root fails Hermes's install scan with a "dangerous" verdict that `--force` cannot override: the root also holds the Raspberry Pi system installer. It shows how to check the scan with `hermes plugins validate` before installing. The install test now runs Hermes's plugin scanner, the one `hermes plugins install` uses, and requires a verdict that installs without confirmation. Reported by @Silexperience210.
 - The changelog check skips Dependabot's pull requests and reads the `no-changelog` label live, so adding the label and re-running the job is enough.
