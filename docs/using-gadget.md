@@ -14,7 +14,7 @@ Wait for the device to show Ready. On the LCD board, BOOT is TALK and PLUS is CA
 
 Long replies turn their own pages. Simulated boards with scroll buttons also accept Up and Down.
 
-Try asking Hermes to show a reminder on the screen. The agent can use `gadget_display` to display a card. Devices with actions can also respond to requests such as "Turn the LED purple."
+Try asking Hermes to show a reminder on the screen. The agent can use `gadget_display` to display a card. While the screen is dark, the card waits and appears when the screen lights up ([screen sleep](protocol.md#screen-sleep)). Devices with actions can also respond to requests such as "Turn the LED purple."
 
 If speech is missing, check [audio setup](connect-hermes.md#4-enable-speech). For connection problems, use [troubleshooting](troubleshooting.md). To change Wi-Fi or install firmware updates, see [Manage an existing gadget](setup-board.md#manage-an-existing-gadget).
 

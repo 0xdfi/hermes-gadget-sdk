@@ -246,6 +246,8 @@ class App {
   void answer_prompt(bool yes);
   void clear_prompt();
   void flush_sensors();
+  // Tells Hermes when the screen goes dark or lights up (docs/protocol.md#screen-sleep).
+  void flush_display_state();
   void set_hint_flash(std::string text);
   void update_model();
   void log(LogLevel level, std::string_view msg);
@@ -381,6 +383,7 @@ class App {
   std::vector<std::pair<std::string, double>> sensors_;
   bool sensors_dirty_ = false;
   uint32_t sensors_sent_ = 0;
+  bool display_sleep_sent_ = false;  // what Hermes was last told
 
   // a firmware update: offered (waiting for the server's MAC), receiving, or
   // installed and about to restart

@@ -67,6 +67,7 @@ Because the id is derived from the key, nobody can claim another device's id wit
 - `caps.ota` (`{"max_size": 2031616}`) means the device installs firmware updates over this connection, up to `max_size` bytes.
 - `actions` is the device's tool manifest. Each action has a JSON-Schema `params` object and a `description` written for the model.
 - `token` is required only when the host sets `GADGET_ACCESS_TOKEN`. A mismatch is rejected with error code `bad_token`.
+- `display_sleeping: true` means the screen is dark as the device connects; it is omitted while the screen is lit. See [Screen sleep](#screen-sleep).
 
 ### `challenge` (server → device)
 
@@ -157,6 +158,17 @@ The server resamples to the device's declared speaker rate. It also paces frames
 
 The server fits images inside `caps.display.image` before sending them, so devices never decode JPEG or PNG.
 
+### Screen sleep
+
+A device whose screen goes dark (a timeout, or the power key) tells the server, and the server holds back screen updates until the screen lights up again. This saves the radio time and the screen wake-ups that cards and images would otherwise cost while nobody is looking.
+
+- The device sends `{"type": "state", "display_sleeping": true}` when the screen goes dark and `{"type": "state", "display_sleeping": false}` when it lights up. Only changes are sent, as they happen, without the rate limit sensor readings have. A device that connects in the dark says so in `hello` instead.
+- While the screen is dark the server keeps the latest `display` card or image (a newer one replaces an older one, as it would on screen) and the latest `status` phrase, and sends neither.
+- When the screen lights up, the server sends the held `status` phrase, then the held card or image. A card or image with a `ttl_s` keeps only the time it has left, counted from when it was sent, and one whose time ran out is dropped. A held status phrase is dropped when its turn ends.
+- What is held survives a reconnect: it goes out once the device connects with its screen lit.
+- Everything else is sent at once: `prompt` and `prompt.close`, `pairing`, turns, transcripts, replies, audio, `notice`, actions and firmware updates. A question or a reply still lights the screen.
+- A device that never sends `display_sleeping` counts as lit, so nothing is held back for it.
+
 ### Questions
 
 Hermes asks before some actions: destructive commands such as `/new`, a costly model switch, or a dangerous shell command the agent wants to run. The server turns each one into a `prompt`:
@@ -181,6 +193,7 @@ Devices must answer every `action` exactly once. The server times out after abou
 | Message | Meaning |
 |---|---|
 | `{"type": "state", "sensors": {"battery_pct": 80, "temperature_c": 21.5}}` | Latest readings (rate limited by the device) |
+| `{"type": "state", "display_sleeping": true}` | The screen went dark (`false`: it lit up); see [Screen sleep](#screen-sleep) |
 | `{"type": "event", "name": "button.long_press", "data": {...}, "notify": false}` | With `notify: true`, the event is delivered to the agent as a message |
 
 ### Firmware updates

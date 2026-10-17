@@ -326,6 +326,18 @@ def test_agent_tools_drive_the_device(gadget, make_sim, monkeypatch):
     assert sim.wait_screen("card", timeout=5)
     assert sim.last_received("display") == {"type": "display", "title": "Timer", "body": "Tea - 3 min", "ttl_s": 0}
 
+    # With the screen dark, the card waits and the tool says so.
+    sim.tap("cancel")
+    assert sim.console("set screen_timeout 1").startswith("@ok")
+    assert sim.wait_for(lambda: gadget.adapter.hub.sessions[device_id].display_sleeping, timeout=5)
+    assert call(tools.gadget_devices, {})["connected"][0]["display_sleeping"] is True
+    held = call(tools.gadget_display, {"title": "Later", "text": "Shown on wake", "seconds": 0})
+    assert held["success"] and "held" in held
+    assert sim.last_received("display")["title"] == "Timer"
+    sim.tap("talk")  # only wakes the screen
+    assert sim.wait_screen("card", timeout=5)
+    assert sim.last_received("display")["title"] == "Later"
+
     acted = call(tools.gadget_action, {"action": "led.set", "args": {"color": "blue"}})
     assert acted["success"] and acted["result"] == {"led": "blue"} and sim.peripherals.led == "blue"
     missing = call(tools.gadget_action, {"action": "laser.fire"})

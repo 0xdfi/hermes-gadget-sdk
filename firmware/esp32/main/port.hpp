@@ -24,6 +24,7 @@
 #include "speaker_pa.hpp"
 #include "speaker_underruns.hpp"
 #include "tag_scanner.hpp"
+#include "wifi_fast.hpp"
 #include "wifi_pick.hpp"
 #include "wifi_power.hpp"
 #include "wifi_retry.hpp"
@@ -587,13 +588,19 @@ class Wifi {
   static void on_event(void* arg, const char* base, int32_t id, void* data);
   static esp_err_t setup_http(httpd_req_t* request);
   void join(const std::string& ssid, const std::string& password);
-  bool configure(const std::string& ssid, const std::string& password);
+  // With `aim`, the station joins that access point on its channel without scanning.
+  bool configure(const std::string& ssid, const std::string& password, const hg::WifiFastAp* aim = nullptr);
   void attempt(uint32_t now);
+  void remember_ap();
+  void forget_unsaved_ap();
   void setup_status(std::string status);
   NvsStorage* storage_ = nullptr;
   bool configured_ = false;
   hg::WifiNetworks networks_;
   hg::WifiPick pick_;
+  hg::WifiFastJoin fast_;
+  bool aimed_ = false;      // the station config names one access point (fast_)
+  bool static_ip_ = false;  // DHCP stopped for a reused lease (CONFIG_HG_WIFI_REUSE_IP)
   std::string ssid_, password_;  // what the station is configured for
   bool link_up_ = false, scanning_ = false;
   bool auto_setup_ = false, auto_setup_tried_ = false;

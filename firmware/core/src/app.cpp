@@ -363,8 +363,10 @@ void App::send_hello() {
       .set("actions", acts)
       .set("sensors", sensors);
   if (!access_token_.empty()) hello.set("token", access_token_);
+  if (display_sleeping_) hello.set("display_sleeping", true);
   send(hello);
   sensors_dirty_ = false;
+  display_sleep_sent_ = display_sleeping_;
 }
 
 void App::on_transport_text(std::string_view text) {
@@ -1083,6 +1085,16 @@ void App::flush_sensors() {
   sensors_sent_ = now();
 }
 
+void App::flush_display_state() {
+  // Not rate limited: Hermes holds back screen updates while it is dark and sends
+  // the latest as soon as it lights up.
+  if (phase_ != Phase::Online || display_sleeping_ == display_sleep_sent_) return;
+  json::Value msg = proto::message("state");
+  msg.set("display_sleeping", display_sleeping_);
+  send(msg);
+  display_sleep_sent_ = display_sleeping_;
+}
+
 void App::emit_event(std::string_view name, json::Value data, bool notify_agent) {
   if (phase_ != Phase::Online) {
     log(LogLevel::Warn, "event dropped while offline: " + std::string(name));
@@ -1356,6 +1368,7 @@ void App::tick() {
   }
 
   flush_sensors();
+  flush_display_state();
 
   if (t - frame_at_ >= kFrameMs) {
     frame_at_ = t;
@@ -1771,6 +1784,7 @@ std::string App::console(std::string_view raw) {
       for (const char* k : kSettingKeys) hal_.storage->erase(setting_storage_key(k));
       for (const auto& k : profile_.extra_settings) hal_.storage->erase(k);
       hal_.storage->erase("wifi_nets");
+      hal_.storage->erase("wifi_fast");  // where the last access point was (drivers/wifi_fast.hpp)
       if (on_phone_forget) on_phone_forget();
     }
     return "@ok " + cmd + " (restart the device to apply)";
