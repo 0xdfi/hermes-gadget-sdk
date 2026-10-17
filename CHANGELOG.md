@@ -54,6 +54,7 @@
 
 ### Tools and documentation
 
+- The Hermes guide explains that the plugin installs from the `plugin` directory, and why installing the repository root fails Hermes's install scan with a "dangerous" verdict that `--force` cannot override: the root also holds the Raspberry Pi system installer. It shows how to check the scan with `hermes plugins validate` before installing. The install test now runs Hermes's plugin scanner, the one `hermes plugins install` uses, and requires a verdict that installs without confirmation. Reported by @Silexperience210.
 - The changelog check skips Dependabot's pull requests and reads the `no-changelog` label live, so adding the label and re-running the job is enough.
 - CI pins every action to a commit and PlatformIO to a version, gives every job a timeout, and checks that each pull request adds a changelog line (or carries the `no-changelog` label). A release now requires successful CI and Hermes runs on the tagged commit and a `CHANGELOG.md` section for the version, which opens the release notes. The security policy covers `linux/`.
 - The Linux guide names the real approval command, `hermes gadget pair`. A test now checks that every `hermes gadget` and `hermes-gadget` command in the guides exists in the CLIs.
