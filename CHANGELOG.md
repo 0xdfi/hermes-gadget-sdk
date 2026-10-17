@@ -58,6 +58,7 @@
 
 ### Tools and documentation
 
+- The website (home page, installer and guides) takes the look of the Hermes plugin art: midnight indigo with a dot screen, periwinkle text, square window frames, Georgia headings over a monospace body, and a dithered banner of Hermes listening to a gadget. Guides switch from the light paper theme to the same dark theme. Layout, links and the installer flow are unchanged.
 - The Hermes guide explains that the plugin installs from the `plugin` directory, and why installing the repository root fails Hermes's install scan with a "dangerous" verdict that `--force` cannot override: the root also holds the Raspberry Pi system installer. It shows how to check the scan with `hermes plugins validate` before installing. The install test now runs Hermes's plugin scanner, the one `hermes plugins install` uses, and requires a verdict that installs without confirmation. Reported by @Silexperience210.
 - The changelog check skips Dependabot's pull requests and reads the `no-changelog` label live, so adding the label and re-running the job is enough.
 - CI pins every action to a commit and PlatformIO to a version, gives every job a timeout, and checks that each pull request adds a changelog line (or carries the `no-changelog` label). A release now requires successful CI and Hermes runs on the tagged commit and a `CHANGELOG.md` section for the version, which opens the release notes. The security policy covers `linux/`.
