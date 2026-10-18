@@ -117,6 +117,7 @@ void release(Event& ev);
 class EspSystem final : public hg::System {
  public:
   uint32_t now_ms() override;
+  uint64_t now_us() override;
   void random_bytes(uint8_t* out, size_t len) override;
   void log(hg::LogLevel level, std::string_view message) override;
   // Boards with BoardConfig::light_sleep: keeps the chip out of light sleep
@@ -507,8 +508,10 @@ class LatchPower final : public hg::Power {
   std::optional<hg::PowerStatus> read() override;
   bool can_power_off() const override { return cfg_.power_off_supported; }
   bool power_off() override;
+  std::optional<bool> external_power() override;
 
  private:
+  bool charging_signal() const;
   LatchPowerConfig cfg_{};
   adc_oneshot_unit_handle_t adc_ = nullptr;
   adc_cali_handle_t calibration_ = nullptr;
