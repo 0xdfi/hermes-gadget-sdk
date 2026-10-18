@@ -750,6 +750,7 @@ gadget> status
 | `wifi join <ssid>` | Move a saved network first and join it now |
 | `wifi forget <ssid>` | Remove a saved network |
 | `phone` / `phone pair` / `phone pair close` / `phone forget` | On boards with Bluetooth: phone app state, open or close pairing, or remove every paired phone ([protocol](protocol.md#phone-app-over-bluetooth)) |
+| `perf` / `perf on` / `perf off` / `perf bench` | Frame timing and the renderer bench ([measure frame timing](development.md#measure-frame-timing)) |
 | `yes` / `no` | Answer the question on screen |
 | `reconnect` | Drop and re-open the Hermes connection |
 | `forget-key` | New device identity on next boot (re-enrollment and re-pairing) |

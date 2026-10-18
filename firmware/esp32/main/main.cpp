@@ -301,6 +301,11 @@ extern "C" void app_main(void) {
   hg::DeviceProfile profile;
   profile.board = board.name;
   profile.firmware = version;
+#if CONFIG_HG_FRAME_STATS
+  profile.frame_stats = true;
+#endif
+  profile.frame_budget_us = CONFIG_HG_FRAME_BUDGET_US;
+  profile.frame_log_ms = CONFIG_HG_FRAME_LOG_S * 1000u;
   profile.default_name = CONFIG_HG_DEFAULT_NAME;
   profile.default_server_url = CONFIG_HG_DEFAULT_SERVER_URL;
   profile.default_access_token = CONFIG_HG_DEFAULT_ACCESS_TOKEN;
