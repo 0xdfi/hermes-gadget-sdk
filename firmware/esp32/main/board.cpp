@@ -24,6 +24,8 @@ namespace {
 #define HG_BOARD_NAME "aipi-lite"
 #elif CONFIG_HG_BOARD_SPOTPEAR_MUMA
 #define HG_BOARD_NAME "spotpear-esp32-s3-1.54-muma"
+#elif CONFIG_HG_BOARD_SPOTPEAR_BOX128
+#define HG_BOARD_NAME "spotpear-esp32-s3-1.28-box"
 #elif CONFIG_HG_BOARD_BOX3
 #define HG_BOARD_NAME "esp32-s3-box-3"
 #elif CONFIG_HG_BOARD_CORES3
@@ -593,6 +595,59 @@ BoardConfig make() {
   // battery divider on GPIO1 and the GPIO41 charge signal (active high, where
   // LatchPower expects active low) are not calibrated yet, so neither is read.
   b.latch_power = {true, -1, 3, -1};
+  b.buttons = {0, -1, -1, -1};
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
+  return b;
+}
+#elif CONFIG_HG_BOARD_SPOTPEAR_BOX128
+// Spotpear ESP32-S3-1.28-BOX, the round robot: ESP32-S3R8, 16 MB flash, 1.28"
+// 240x240 round GC9A01 over SPI, one ES8311 for both directions, CST816D touch
+// on its own I2C bus, BOOT key, a power latch on GPIO3 and a battery divider.
+// The muma's wiring with a round panel in place of the ST7789.
+// Pins: xiaozhi-esp32 board spotpear/sp-esp32-s3-1.28-box at d91d682.
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  b.lcd.enabled = true;
+  b.lcd.controller = LcdController::Gc9a01;
+  b.lcd.gc9a01_panel = Gc9a01Panel::SpotpearBox128;
+  b.lcd.width = b.lcd.height = 240;
+  b.lcd.round = true;
+  b.lcd.swap_xy = false;
+  b.lcd.mirror_x = true;
+  b.lcd.mirror_y = false;
+  b.lcd.invert = true;
+  b.lcd.bgr = true;
+  b.lcd.mosi = 2;
+  b.lcd.sclk = 4;
+  b.lcd.cs = 5;
+  b.lcd.dc = 47;
+  b.lcd.rst = 38;
+  b.lcd.backlight = 42;
+  b.lcd.backlight_invert = true;
+  b.i2c = {15, 14, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 16;
+  b.codec.bclk = 9;
+  b.codec.ws = 45;
+  b.codec.dout = 8;
+  b.codec.din = 10;
+  b.codec.pa = 46;
+  b.codec.mic = MicCodec::Es8311;
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;
+  b.touch.addr = 0x15;
+  b.touch.bus = {11, 7, 400000};
+  b.touch.rst = 6;
+  b.touch.width = b.touch.height = 240;
+  // GPIO3 high keeps the battery path on; upstream lowers it to shut down.
+  // GPIO1 reads the battery through a halving divider, and GPIO41 is high while
+  // charging. Upstream's charge table (raw 1980-2480 at 12 dB) puts a full cell
+  // near 4.0 V at that ratio; the ratio is not measured on a board yet.
+  b.latch_power = {true, 1, 3, 41, -1, 2};
+  b.latch_power.charging_active_high = true;
+  b.status_led = 48;
   b.buttons = {0, -1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "Swipe down";

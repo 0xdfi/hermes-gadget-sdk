@@ -92,6 +92,7 @@ Like a board, the simulated device takes firmware updates (`hermes gadget update
 | `sim-480x320` | 480×320 | Larger panel |
 | `sim-240x240` | 240×240 | The 1.54" LCD board: two buttons, no scroll buttons, so long replies page by themselves |
 | `sim-240x240-nospeaker` | 240×240 | No speaker, so replies stay text only |
+| `sim-240x240-round` | 240×240 round | The Spotpear 1.28-BOX touch board, the smallest round screen, with the same controls as `sim-466x466-round` |
 | `sim-360x360-round` | 360×360 round | The 1.85C V2 LCD touch board, with the same controls as `sim-466x466-round` |
 | `sim-466x466-round` | 466×466 round | The 1.75" AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons, so long replies page by themselves |
 | `sim-368x448` | 368×448 | The 1.8" rectangular AMOLED touch board: hold the mouse on the screen to talk, click to answer yes, drag down to cancel. No scroll buttons |

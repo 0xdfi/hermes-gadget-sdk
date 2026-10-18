@@ -10,10 +10,12 @@
 #include "driver/spi_master.h"
 #include "esp_heap_caps.h"
 #include "esp_lcd_panel_ops.h"
+#include "esp_lcd_gc9a01.h"
 #include "esp_lcd_panel_st7789.h"
 #include "esp_log.h"
 #include "panel_box3.hpp"
 #include "panel_cores3.hpp"
+#include "panel_spotpear128.hpp"
 #include "panel_vocat.hpp"
 #include "panel_ws185.hpp"
 #include "freertos/task.h"
@@ -38,6 +40,7 @@ bool SpiDisplay::on_trans_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event
 bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   cfg_ = cfg;
   const bool qspi = cfg.controller == LcdController::St77916;
+  const bool gc9a01 = cfg.controller == LcdController::Gc9a01;
   bool ili9341 = false;
   bool cores3_e = false;
   if (cfg.controller == LcdController::Box3) {
@@ -50,7 +53,7 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
       ili9341 = true;
     }
   }
-  controller_name_ = qspi ? "st77916" : ili9341 ? "ili9342" : "st7789";
+  controller_name_ = qspi ? "st77916" : gc9a01 ? "gc9a01" : ili9341 ? "ili9342" : "st7789";
   if (cfg.controller == LcdController::CoreS3) {
     if (!i2c_bus) return false;
     i2c_device_config_t device = {};
@@ -180,6 +183,8 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
       panel_cfg.vendor_config = &vendor;
     }
     if (!esp_ok(esp_lcd_new_panel_ili9341(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_ili9341")) return false;
+  } else if (gc9a01) {
+    if (!esp_ok(esp_lcd_new_panel_gc9a01(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_gc9a01")) return false;
   } else {
     if (!esp_ok(esp_lcd_new_panel_st7789(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st7789")) return false;
   }
@@ -190,6 +195,13 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   if (!esp_ok(esp_lcd_panel_mirror(panel_, cfg.mirror_x, cfg.mirror_y), TAG, "esp_lcd_panel_mirror")) return false;
   if (!esp_ok(esp_lcd_panel_set_gap(panel_, cfg.gap_x, cfg.gap_y), TAG, "esp_lcd_panel_set_gap")) return false;
   if (!esp_ok(esp_lcd_panel_disp_on_off(panel_, true), TAG, "esp_lcd_panel_disp_on_off")) return false;
+  if (gc9a01 && cfg.gc9a01_panel == Gc9a01Panel::SpotpearBox128) {
+    // The driver's default table leaves the inter-register commands enabled, so
+    // these land without another 0xFE/0xEF unlock.
+    for (const auto& c : kSpotpearBox128Panel) {
+      if (!esp_ok(esp_lcd_panel_io_tx_param(io_, c.cmd, c.data, c.data_bytes), TAG, "gc9a01 panel tuning")) return false;
+    }
+  }
 
   if (cfg.backlight >= 0) {
     ledc_timer_config_t timer = {};

@@ -11,6 +11,7 @@ The dependencies below keep their own licenses and are downloaded when you build
 | [ESP-IDF](https://github.com/espressif/esp-idf) | The ESP32 framework and drivers | Apache 2.0 |
 | [esp_codec_dev](https://components.espressif.com/components/espressif/esp_codec_dev) | ES8311 / ES7210 audio codecs | Apache 2.0 |
 | [esp_websocket_client](https://components.espressif.com/components/espressif/esp_websocket_client) | The device's WebSocket connection | Apache 2.0 |
+| Espressif [GC9A01 display](https://components.espressif.com/components/espressif/esp_lcd_gc9a01) driver | Spotpear 1.28-BOX round panel | Apache 2.0 |
 | Espressif [ILI9341 display](https://components.espressif.com/components/espressif/esp_lcd_ili9341), [GT911](https://components.espressif.com/components/espressif/esp_lcd_touch_gt911) and [TT21100](https://components.espressif.com/components/espressif/esp_lcd_touch_tt21100) touch drivers | BOX-3 display revisions and touch | Apache 2.0 |
 | Espressif [ST7701 display](https://components.espressif.com/components/espressif/esp_lcd_st7701) and [panel IO additions](https://components.espressif.com/components/espressif/esp_lcd_panel_io_additions) (3-wire SPI) drivers | CrowPanel 2.1 RGB panel | Apache 2.0 |
 | Espressif [FT5x06 touch](https://components.espressif.com/components/espressif/esp_lcd_touch_ft5x06) driver | CoreS3 touch; ILI9341 and esp_codec_dev also provide its display and AW88298 audio drivers | Apache 2.0 |
@@ -70,6 +71,8 @@ The ESP-IDF adaptation and timing changes are recorded in [NOTICE](NOTICE), with
 the upstream license in [LICENSES/LilyGO-MIT.txt](LICENSES/LilyGO-MIT.txt).
 
 The AIPI Lite pin map, panel settings and power wiring follow [xiaozhi-esp32's `xorigin/aipi-lite` board](https://github.com/78/xiaozhi-esp32/tree/0d576d3d4c049c6f55eaf879725dc23e516511b4/main/boards/xorigin/aipi-lite) at commit `0d576d3d4c049c6f55eaf879725dc23e516511b4` (MIT). Only hardware facts are used; see [NOTICE](NOTICE).
+
+The Spotpear ESP32-S3-1.28-BOX pin map, panel settings, power wiring and GC9A01 register changes (`panel_spotpear128.hpp`) follow [xiaozhi-esp32's `spotpear/sp-esp32-s3-1.28-box` board](https://github.com/78/xiaozhi-esp32/tree/d91d6824309d12df5fc3db5edf8145ee829135d7/main/boards/spotpear/sp-esp32-s3-1.28-box) at commit `d91d6824309d12df5fc3db5edf8145ee829135d7` (MIT). Only hardware facts are used; see [NOTICE](NOTICE).
 
 The Spotpear ESP32-S3-1.54 muma pin map, panel settings and power wiring follow [xiaozhi-esp32's `spotpear/sp-esp32-s3-1.54-muma` board](https://github.com/78/xiaozhi-esp32/tree/d91d6824309d12df5fc3db5edf8145ee829135d7/main/boards/spotpear/sp-esp32-s3-1.54-muma) at commit `d91d6824309d12df5fc3db5edf8145ee829135d7` (MIT). Only hardware facts are used; see [NOTICE](NOTICE).
 

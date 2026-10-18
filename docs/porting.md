@@ -62,7 +62,7 @@ Implement `hg::Display` (`firmware/core/include/hg/hal.hpp`):
 | `flush(y0, y1)` | Push full-width rows `[y0, y1)` to the panel |
 | `set_backlight(percent)` | Optional |
 
-`SpiDisplay` in `port_display.cpp` is the reference. To add ILI9341, GC9A01 or another panel, swap `esp_lcd_new_panel_st7789` for the matching `esp_lcd` driver (most are managed components). For RGB/parallel or QSPI AMOLED panels, the same interface applies with that panel's `esp_lcd` IO.
+`SpiDisplay` in `port_display.cpp` is the reference. It drives ST7789, ILI9341/ILI9342, ST77916 (QSPI) and GC9A01 panels; set `b.lcd.controller`. A GC9A01 whose glass wants different gate timing or supply levels gets a `Gc9a01Panel` entry with those register changes, sent after the driver's default bring-up (`panel_spotpear128.hpp` is the example). To add another panel, swap `esp_lcd_new_panel_st7789` for the matching `esp_lcd` driver (most are managed components). For RGB/parallel or QSPI AMOLED panels, the same interface applies with that panel's `esp_lcd` IO.
 
 `SpiDisplay` sends rows through one DMA staging buffer with `hg::BandFlush` (`firmware/drivers/band_flush.hpp`). It never refills the buffer while a transfer may still read it, and a transfer that does not finish pauses the screen without blocking the app. A new panel that stages rows for DMA can use it the same way.
 
@@ -108,7 +108,7 @@ Boards like the ESP32-S3-BOX family and the ESP32-S3-Touch-AMOLED-1.75 route aud
 
 `App::on_button(Button, pressed)` takes four logical buttons: `Talk`, `Cancel`, `Up`, `Down`. Map any physical input onto them:
 
-- **Touch screen:** `hg::TouchGestures` (`firmware/core/include/hg/touch.hpp`) turns raw touch samples into the buttons: hold anywhere is `Talk`, a quick tap answers "yes", a swipe down is `Cancel`. Feed it from the touch driver and set `DeviceProfile::touch_screen` so the hints say "Hold the screen to talk". `port_touch.cpp` does this for a CST9217. A touch controller wired to its own I2C pins sets `BoardConfig::touch.bus`; the firmware then opens that bus on the second I2C controller, as the Spotpear muma does.
+- **Touch screen:** `hg::TouchGestures` (`firmware/core/include/hg/touch.hpp`) turns raw touch samples into the buttons: hold anywhere is `Talk`, a quick tap answers "yes", a swipe down is `Cancel`. Feed it from the touch driver and set `DeviceProfile::touch_screen` so the hints say "Hold the screen to talk". `port_touch.cpp` does this for a CST9217. A touch controller wired to its own I2C pins sets `BoardConfig::touch.bus`; the firmware then opens that bus on the second I2C controller, as the Spotpear muma and 1.28-BOX do.
 - **Rotary encoder:** detents → `Up` / `Down`; push → `Talk`.
 - **A single button:** `Talk` only. Long-press handling for `Cancel` belongs in the port.
 
