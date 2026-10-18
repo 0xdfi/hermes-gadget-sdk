@@ -122,6 +122,8 @@ void keep_pins_through_sleep(const hgp::BoardConfig& b) {
                       b.amoled.rst, b.touch.rst, b.codec.pa, b.i2c.sda, b.i2c.scl};
   for (int pin : pins)
     if (pin >= 0) gpio_sleep_sel_dis(static_cast<gpio_num_t>(pin));
+  for (const hgp::PowerRail& rail : b.power_rails)
+    if (rail.gpio >= 0) gpio_sleep_sel_dis(static_cast<gpio_num_t>(rail.gpio));
 }
 
 void dispatch(hg::App& app, hgp::Event& ev) {
