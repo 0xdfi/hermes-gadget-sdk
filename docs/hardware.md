@@ -508,6 +508,97 @@ The USB-C port is the S3's own USB Serial/JTAG, used for flashing and the serial
 
 The pin map follows xiaozhi-esp32's `spotpear/sp-esp32-s3-1.54-muma` board at commit `d91d682`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
+## Spotpear ESP32-S3-1.28-BOX
+
+Board option `spotpear-box128`, for Spotpear's round robot, SKU `sp-esp32-s3-1.28-box`: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 1.28" 240×240 round GC9A01 panel over SPI, a CST816D touchscreen, one ES8311 codec for both the speaker and the microphone, an NS4150B amplifier, a BOOT key and a battery. It ships with the XiaoZhi firmware. Apart from the panel, it is wired like the [muma](#spotpear-esp32-s3-154-muma). This port is experimental.
+
+**Back up the whole flash before the first flash.** The board has no other copy of its factory firmware:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0 0x1000000 box128-factory.bin
+```
+
+Writing that file back at `0x0` restores the original firmware.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | GC9A01, SPI | MOSI 2, SCLK 4, CS 5, DC 47, RST 38; 40 MHz; BGR, mirrored on X, colors inverted; backlight GPIO 42, active low |
+| Speaker DAC + microphone ADC | ES8311 | I2C 0x18 on SDA 15, SCL 14; I2S MCLK 16, BCLK 9, WS 45, DOUT 8, DIN 10; amplifier enable 46 |
+| Touch | CST816D | I2C 0x15 on its own bus, SDA 11, SCL 7; RST 6 |
+| Power | | GPIO 3 latches the battery path on; charge signal on GPIO 41 (high while charging); battery divider on GPIO 1 (ADC1 channel 0), ratio 2 |
+| Status LED | | GPIO 48 |
+| Keys | | BOOT GPIO 0 (TALK) |
+
+After Espressif's default GC9A01 bring-up, the firmware writes this panel's gate timing (`0x62`, `0x63`) and supply levels (`0xC3`, `0xC4`), as the factory firmware does (`panel_spotpear128.hpp`).
+
+The battery reading assumes the divider halves the cell voltage. At that ratio, the factory firmware's charge table, read at the same attenuation, puts a full cell near 4.0 V, but nobody has measured it on a board yet. **Power off** in settings lowers GPIO 3; on USB power the board stays on.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e spotpear-box128 -t upload -t monitor
+```
+
+The USB-C port is the S3's own USB Serial/JTAG, used for flashing and the serial console. To preview the round layout without the board, run `hermes-gadget sim --board sim-240x240-round`.
+
+### First flash: what to check
+
+1. **Boot log:** `battery latch enabled; calibrated voltage available` and `codecs: speaker ready, microphones ready (es8311 analog)`. The `hg.diag` parts line should read `display gc9a01, microphone es8311, speaker es8311`, with touch ready.
+2. **Screen:** the mascot is upright, not mirrored, and centred in the circle, and the colors are right (amber accents, not blue). Swapped red and blue means `lcd.bgr` is wrong; a negative-looking image means `lcd.invert` is; a mirrored picture means `lcd.mirror_x` is. Faint or washed-out colors point at the register changes in `panel_spotpear128.hpp`.
+3. **Brightness:** the settings menu's brightness steps dim the screen, and 100 percent is the brightest. Reversed steps mean `lcd.backlight_invert` is wrong.
+4. **Touch:** holding the screen records, a swipe down cancels, and taps land where you touch. A swipe that reads backwards means the touch needs `touch.mirror_x` or `touch.mirror_y`.
+5. **Microphone:** hold BOOT and speak; the waves move with your voice and Hermes's transcript is right.
+6. **Speaker:** replies are clear and loud enough (`set volume 80`).
+7. **Battery:** with a charged cell, `hermes-gadget diag` reports about 4.0 to 4.2 V. A reading far off means the divider ratio is wrong. The charging mark shows on USB and goes away on battery; if it is the wrong way round, clear `latch_power.charging_active_high`.
+8. **Power:** unplug USB with the battery in, and the device stays on. **Power off** in settings turns it off.
+
+The pin map follows xiaozhi-esp32's `spotpear/sp-esp32-s3-1.28-box` board at commit `d91d682`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
+## ESP-VoCat
+
+Board option `esp-vocat`, for Espressif's ESP-VoCat AI companion kit, **v1.2 only** (the version is on the mainboard's silkscreen). It has an ESP32-S3-WROOM-1 module with 16 MB flash and 16 MB octal PSRAM, a round 1.85" 360×360 ST77916 panel over QSPI, a CST816S touchscreen, an ES8311 DAC driving an NS4150B 3 W amplifier, an ES7210 with two microphones, a BMI270 IMU, a BQ27220 fuel gauge, a green LED, two capacitive touch pads on its head, a microSD slot, and RST, BOOT and POWER keys. It ships with an ESP-Brookesia chatbot firmware. This port is experimental.
+
+v1.0 boards are not supported: v1.2 moved the microphone data line (GPIO 15 to 3), the amplifier enable (4 to 15) and the LCD reset (3 to 47), and added the codec supply switch on GPIO 48.
+
+**Back up the whole flash before the first flash.** The board has no other copy of its factory firmware:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0 ALL vocat-factory.bin
+```
+
+Writing that file back at `0x0` restores the original firmware.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST77916, QSPI | SCLK 18, D0 46, D1 13, D2 11, D3 12, CS 14; RST 47, active high (through an inverting FET); backlight GPIO 44, active high |
+| Power rails | | GPIO 9 low switches the LCD/SD 3.3 V rail on; GPIO 48 high switches the codec supply on |
+| Touch | CST816S | I2C 0x15 on SDA 2, SCL 1; INT 10; no reset line |
+| Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 42, BCLK 40, WS 39, DOUT 41; NS4150B amplifier enable GPIO 15, active high |
+| Microphone ADC | ES7210 | I2C 0x40; I2S DIN 3; microphones on MIC1 and MIC2, the speaker output looped back on MIC3 |
+| Keys | | BOOT GPIO 0 (TALK), under the base; RST and POWER act on the hardware only |
+| Unused by this profile | | BMI270 IMU (I2C 0x68, INT1 GPIO 21), BQ27220 fuel gauge (I2C 0x55), touch pads GPIO 6 and 7, green LED GPIO 43 (active low), microSD (CLK 16, CMD 38, D0 17), UART1 on the magnetic connector (RX 4, TX 5) |
+
+All I2C parts share one bus. GPIO 43 and 44 are UART0's pins, so the serial console is the S3's USB Serial/JTAG on the USB-C port. Hold the screen or BOOT to talk, and swipe down to cancel. The firmware doesn't read the battery or the head pads yet, and doesn't use the MIC3 loopback for echo cancellation.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e esp-vocat -t upload -t monitor
+```
+
+### First flash: what to check
+
+1. **Boot log:** the `hg.lcd` line reads `st77916 360x360 ready` after the panel ID, and the `hg.diag` parts line reads `display st77916, microphone es7210, speaker es8311`, with touch ready.
+2. **Screen:** the mascot is upright, centred in the circle and not mirrored, and the colors are right (amber accents, not blue). A negative-looking image means `lcd.invert` is wrong.
+3. **Brightness:** the settings menu's brightness steps dim the screen, and 100 percent is the brightest.
+4. **Touch:** holding the screen records, a swipe down cancels, and taps land where you touch.
+5. **Microphone:** hold the screen and speak; the waves move with your voice and Hermes's transcript is right.
+6. **Speaker:** replies are clear and loud enough (`set volume 80`).
+
+The pin map follows Espressif's esp-bsp `bsp/esp_vocat` at commit `f259a6a` and the ESP-VoCat v1.2 schematic; the panel's start-up table comes from the same BSP. See [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Elecrow CrowPanel 2.1-inch HMI
 
 Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.

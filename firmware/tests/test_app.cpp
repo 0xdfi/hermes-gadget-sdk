@@ -2686,3 +2686,142 @@ TEST("power: a device that reconnects in the dark says so in its hello") {
   r.advance(100);
   CHECK(last_screen_state(r.fake) == nullptr);  // the hello already said it
 }
+
+namespace {
+const char* kDashboard =
+    R"({"type":"dashboard","v":1,"sessions":[{"label":"telegram 3f2a","state":"busy"},)"
+    R"({"label":"gadget 91c0","state":"waiting"},{"label":"cli 77de","state":"idle"}],)"
+    R"("tiles":[{"label":"NAS","value":"up","state":"ok"},{"label":"Backups","value":"2 days","state":"warn"}]})";
+
+void tap_cancel(Rig& r) {
+  r.app.on_button(hg::Button::Cancel, true);
+  r.advance(50);
+  r.app.on_button(hg::Button::Cancel, false);
+}
+
+size_t count_pixels(const FakeHal& fake, uint16_t color) {
+  size_t n = 0;
+  for (uint16_t px : fake.fb) n += px == color;
+  return n;
+}
+}  // namespace
+
+TEST("dashboard: the hello offers it, versioned, with the rows that fit") {
+  Rig r;
+  r.bring_online(true);
+  const Value* hello = r.fake.last("hello");
+  CHECK(hello && (*hello)["caps"]["dashboard"].is_object());
+  if (!hello) return;
+  CHECK_EQ((*hello)["caps"]["dashboard"]["v"].as_int(), int64_t(1));
+  CHECK((*hello)["caps"]["dashboard"]["rows"].as_int() >= 4);
+
+  hg::DeviceProfile talk_only = Rig::profile("ws://hermes.local:8765/gadget");
+  talk_only.has_cancel_button = false;  // nothing could open it
+  Rig t(talk_only);
+  t.bring_online(true);
+  CHECK(!(*t.fake.last("hello"))["caps"]["dashboard"].is_object());
+}
+
+TEST("dashboard: arrives quietly, opens with CANCEL on the idle screen and closes with it") {
+  Rig r;
+  r.bring_online(true);
+  CHECK(r.app.screen() == hg::Screen::Ready);
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Ready);  // nothing to show yet
+  r.server(kDashboard);
+  CHECK(r.app.screen() == hg::Screen::Ready);  // a snapshot doesn't take the screen
+  CHECK_EQ(r.app.model().detail, std::string("CANCEL shows sessions"));
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  const auto& rows = r.app.model().dash;
+  CHECK_EQ(rows.size(), size_t(7));  // heading, 3 sessions, heading, 2 tiles
+  if (rows.size() != 7) return;
+  CHECK(rows[0].heading);
+  CHECK_EQ(rows[1].label, std::string("telegram 3f2a"));
+  CHECK(rows[1].value == "busy" && rows[1].tone == hg::DashRow::Tone::Busy);
+  CHECK(rows[2].value == "approval" && rows[2].tone == hg::DashRow::Tone::Waiting);
+  CHECK(rows[3].value == "idle" && rows[3].tone == hg::DashRow::Tone::Dim);
+  CHECK(rows[4].heading);
+  CHECK(rows[5].value == "up" && rows[5].tone == hg::DashRow::Tone::Good);
+  CHECK(rows[6].tone == hg::DashRow::Tone::Warn);
+  CHECK_EQ(r.app.model().headline, std::string("1 waiting"));
+  CHECK_EQ(r.app.model().hint, std::string("CANCEL to close"));
+
+  // A newer snapshot replaces it while it is open.
+  r.server(R"({"type":"dashboard","v":1,"sessions":[{"label":"cli 77de","state":"idle"}]})");
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  CHECK_EQ(r.app.model().dash.size(), size_t(2));
+  CHECK_EQ(r.app.model().headline, std::string("All idle"));
+  r.server(R"({"type":"dashboard","v":2,"sessions":[]})");  // a layout this firmware doesn't know
+  CHECK_EQ(r.app.model().dash.size(), size_t(2));
+
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Ready);
+}
+
+TEST("dashboard: talking or a question takes over; a lost connection forgets it") {
+  Rig r;
+  r.bring_online(true);
+  r.server(kDashboard);
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  r.server(R"({"type":"prompt","id":"q1","title":"Allow?","text":"ls"})");
+  CHECK(r.app.screen() == hg::Screen::Prompt);
+  r.server(R"({"type":"prompt.close","id":"q1"})");
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  r.app.on_button(hg::Button::Talk, true);
+  CHECK(r.app.screen() == hg::Screen::Listening);
+  r.advance(50);
+  r.app.on_button(hg::Button::Talk, false);  // too short: discarded
+  CHECK(r.app.screen() == hg::Screen::Ready);
+  r.advance(3000);
+
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  r.app.on_transport_closed("gone");
+  CHECK(r.app.screen() == hg::Screen::Connecting);
+  r.advance(3000);
+  r.app.on_transport_open();
+  r.server(R"({"type":"challenge","nonce":"bm9uY2U=","enrolled":true})");
+  r.server(R"({"type":"welcome","session":"s2","heartbeat_s":20,"paired":true})");
+  CHECK(r.app.screen() == hg::Screen::Ready);
+  CHECK_EQ(r.app.model().detail, std::string("Ask me anything"));
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Ready);  // nothing until Hermes sends it again
+}
+
+TEST("dashboard: a session's state shows in its colour, and long lists page") {
+  Rig r;
+  r.bring_online(true);
+  const uint16_t blue = hg::rgb565(90, 169, 242);
+  r.server(R"({"type":"dashboard","v":1,"sessions":[{"label":"telegram","state":"idle"}]})");
+  tap_cancel(r);
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  const size_t idle_blue = count_pixels(r.fake, blue);
+  r.server(R"({"type":"dashboard","v":1,"sessions":[{"label":"telegram","state":"busy"}]})");
+  CHECK(count_pixels(r.fake, blue) > idle_blue);  // the busy dot and its word
+
+  std::string many = R"({"type":"dashboard","v":1,"sessions":[)";
+  for (int i = 0; i < 12; ++i) many += std::string(i ? "," : "") + R"({"label":"s)" + std::to_string(i) + R"(","state":"idle"})";
+  many += "]}";
+  r.server(many);
+  CHECK_EQ(r.app.model().scroll, 0);
+  r.advance(12000);
+  CHECK(r.app.model().scroll > 0);  // pages itself
+  for (int i = 0; i < 6 && r.app.model().scroll != 0; ++i) r.advance(12000);
+  CHECK_EQ(r.app.model().scroll, 0);  // ...and starts over at the top
+  r.app.on_button(hg::Button::Down, true);
+  r.app.on_button(hg::Button::Down, false);
+  CHECK_EQ(r.app.model().scroll, 1);
+}
+
+TEST("dashboard: touch boards open it with a swipe down") {
+  Rig r(Rig::touch_profile());
+  r.bring_online(true);
+  r.server(kDashboard);
+  CHECK_EQ(r.app.model().detail, std::string("Swipe down for sessions"));
+  r.app.on_button(hg::Button::Cancel, true);
+  r.app.on_button(hg::Button::Cancel, false);
+  CHECK(r.app.screen() == hg::Screen::Dashboard);
+  CHECK_EQ(r.app.model().hint, std::string("Swipe down to close"));
+}

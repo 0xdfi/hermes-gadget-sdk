@@ -8,6 +8,7 @@ Wait for the device to show Ready. On the LCD board, BOOT is TALK and PLUS is CA
 | Interrupt a spoken reply | Hold TALK to start speaking |
 | Discard a recording, close a card, or stop a turn | Tap CANCEL |
 | Start a fresh conversation | Hold CANCEL for two seconds |
+| Open or close the [dashboard](#watch-hermes-sessions-on-the-dashboard) | Tap CANCEL on the idle screen |
 | Answer a confirmation question | TALK means yes; CANCEL means no |
 | Type in the simulator | Enter a message in the text box and press Enter |
 | Save the simulator's device screen | Press Ctrl+S |
@@ -17,6 +18,34 @@ Long replies turn their own pages. Simulated boards with scroll buttons also acc
 Try asking Hermes to show a reminder on the screen. The agent can use `gadget_display` to display a card. While the screen is dark, the card waits and appears when the screen lights up ([screen sleep](protocol.md#screen-sleep)). Devices with actions can also respond to requests such as "Turn the LED purple."
 
 If speech is missing, check [audio setup](connect-hermes.md#4-enable-speech). For connection problems, use [troubleshooting](troubleshooting.md). To change Wi-Fi or install firmware updates, see [Manage an existing gadget](setup-board.md#manage-an-existing-gadget).
+
+## Watch Hermes sessions on the dashboard
+
+The dashboard lists the Hermes agent's sessions, from every platform the gateway serves, and any status tiles you set on the host. Each session shows its state:
+
+| State | Colour | Meaning |
+|---|---|---|
+| busy | Blue | A turn is running |
+| approval | Amber | The turn waits for you to approve a command, on whichever device or chat asked |
+| idle | Grey | Nothing is running. An idle session leaves the list 30 minutes after its last turn |
+
+Once the device has a dashboard, the idle screen says **CANCEL shows sessions** (on a touchscreen, **Swipe down for sessions**). Tap CANCEL or swipe down to open it, and again to close it. Talking, a question or a card takes the screen over. A list longer than the screen turns its own pages; Up and Down scroll it on boards with those buttons. The headline counts the sessions waiting for approval, or else the busy ones.
+
+Tiles are lines you set from the Hermes host, for example for homelab services:
+
+```bash
+hermes gadget tile set nas up --state ok --label NAS
+```
+
+`--state` colours the tile's dot green (`ok`), yellow (`warn`) or red (`bad`). `--ttl 300` removes the tile after five minutes unless it is set again, so a script that stops reporting doesn't leave a stale value. `hermes gadget tile list` shows the tiles, and `hermes gadget tile clear nas` (or `--all`) removes them. The dashboard holds up to eight tiles. Gadgets showing the dashboard pick up a change within a few seconds.
+
+A script or cron job can keep a tile current:
+
+```bash
+if ping -c1 -W2 nas.lan >/dev/null; then hermes gadget tile set nas up --state ok --ttl 300; else hermes gadget tile set nas down --state bad --ttl 300; fi
+```
+
+The device gets a new dashboard only when something on it changes. While the screen is dark, it gets the latest one when the screen lights up. To turn the dashboard off, set `dashboard: false` under `platforms.gadget.extra` ([configuration](hermes-integration.md#configuration)). Boards without a CANCEL button or a touchscreen don't show it.
 
 ## Device settings and hardware checks
 

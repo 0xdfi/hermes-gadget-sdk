@@ -35,6 +35,7 @@ platforms:
       unauthorized_dm_behavior: pair
       # heartbeat_s: 20
       # max_utterance_s: 60
+      # dashboard: true        # Hermes's sessions and status tiles on devices that draw them
       # battery_log: true      # keep each device's battery readings in a CSV (see below)
       # tls_cert: /path/cert.pem   # serve wss://
       # tls_key: /path/key.pem
@@ -166,6 +167,7 @@ These work on current Hermes and are covered by `tests/test_adapter_hermes.py` a
 4. **Transcript echo detection** matches the echo format: microphone emoji plus quoted text. If the format changes, the transcript is shown as an ordinary reply; nothing breaks.
 5. **Self-confirming `/new`** reads `tools.slash_confirm.get_pending()` to check that the pending confirmation is for the `new` command. It relies on the runner registering a confirmation before it calls `send_slash_confirm`, which Hermes does on purpose so that fast button presses can't race it. If that changes, the device simply asks.
 6. **Question text** is cut down from Hermes's chat-formatted confirmation by dropping the bullet-list and italic paragraphs. A different layout only means a longer question.
+7. **Dashboard session state** comes from plugin hooks, which are a public API: `pre_llm_call` (busy), `on_session_end` (idle), `pre_approval_request` and `post_approval_response` (waiting), and `on_session_finalize` and `on_session_reset` (gone). It relies on `session_id` in their keyword arguments. The approval hooks carry it only when Hermes binds the approval to a session; an approval without one doesn't show as waiting. The hooks see every session in the gateway process, so when several profiles share one process, every profile's paired gadgets see every session.
 
 ## Suggested upstream changes (optional; nothing here blocks the SDK)
 

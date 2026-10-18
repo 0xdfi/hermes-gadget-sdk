@@ -53,7 +53,17 @@ struct RgbPanelConfig {
   RgbTimings timings{};   // panel scanout timings (per-datasheet)
 };
 
-enum class LcdController { St7789, Box3, CoreS3, St77916 };
+enum class LcdController { St7789, Box3, CoreS3, St77916, Gc9a01 };
+
+// Which vendor initialization table an ST77916 panel gets. Waveshare's 1.85C
+// tables are chosen by the panel ID the driver reads; the ESP-VoCat's glass
+// takes Espressif's own table (panel_vocat.hpp).
+enum class St77916Panel { Waveshare185, Vocat };
+
+// Register changes a GC9A01 panel gets after Espressif's default bring-up.
+// Glass from different makers wants different gate timing and supply levels;
+// None keeps the driver's defaults.
+enum class Gc9a01Panel { None, SpotpearBox128 };
 
 struct LcdConfig {
   bool enabled = false;
@@ -65,6 +75,8 @@ struct LcdConfig {
   LcdBus bus{};
   RgbPanelConfig rgb{};
   LcdController controller = LcdController::St7789;
+  St77916Panel st77916_panel = St77916Panel::Waveshare185;
+  Gc9a01Panel gc9a01_panel = Gc9a01Panel::None;
   bool reset_active_high = false;
   bool backlight_invert = false;  // active-low GPIO backlight, independent of pixel inversion
   bool bgr = false;  // the panel's color filter is BGR (SpiDisplay)
@@ -166,6 +178,14 @@ struct ExpanderResetConfig {
   uint16_t hold_ms = 10, settle_ms = 50;  // low pulse, then the wait before the display starts
 };
 
+// A supply switch driven straight from a GPIO, set once at boot before any
+// peripheral starts and then left alone (the ESP-VoCat's LCD/SD rail and codec
+// supply).
+struct PowerRail {
+  int gpio = -1;          // -1 = unused
+  bool on_level = true;   // the level that turns the rail on
+};
+
 struct ButtonConfig {
   int talk = -1, cancel = -1, up = -1, down = -1;  // active-low GPIOs, -1 = absent
 };
@@ -185,6 +205,9 @@ struct LatchPowerConfig {
   int mv_ratio = 3;
   uint16_t max_battery_mv = 4998;
   bool power_off_supported = true;
+  // The charging signal's level while charging. Most chargers pull it low; the
+  // Spotpear 1.28" box drives it high.
+  bool charging_active_high = false;
 };
 
 struct BoardConfig {
@@ -200,6 +223,8 @@ struct BoardConfig {
   TouchConfig touch;
   ExpanderKeyConfig pwr_key;
   ExpanderResetConfig expander_reset;
+  PowerRail power_rails[2];
+  uint16_t power_rails_settle_ms = 0;  // wait after switching the rails on
   bool axp2101 = false;
   bool axp_audio_supply = false;
   bool axp_power_key = false;  // PWR reaches only the AXP2101: read its short press there

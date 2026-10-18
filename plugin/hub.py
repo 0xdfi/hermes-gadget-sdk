@@ -96,10 +96,11 @@ class _Upload:
 class _Held:
     """Screen updates held back while a device's screen is dark (docs/protocol.md#screen-sleep).
 
-    Only the latest of each is kept: one status phrase, and one card or image (the
-    newer replaces the older, as it would on screen).
+    Only the latest of each is kept: one status phrase, one dashboard, and one card
+    or image (the newer replaces the older, as it would on screen).
     """
     status: str | None = None
+    dashboard: dict | None = None
     view: tuple | None = None  # ("card", title, body) or ("image", width, height, rgb565)
     ttl_s: float = 0
     held_at: float = 0.0
@@ -225,6 +226,7 @@ class DeviceSession:
         self._pending: dict[str, asyncio.Future] = {}
         self._tasks: set[asyncio.Task] = set()
         self._ota_inbox: asyncio.Queue | None = None  # the device's ota.* replies, while an update runs
+        self._dashboard_sent: dict | None = None  # the last dashboard this connection delivered
 
     # -- capabilities -----------------------------------------------------------
 
@@ -253,6 +255,13 @@ class DeviceSession:
             return None
         w, h = int(img.get("width") or 0), int(img.get("height") or 0)
         return (w, h) if w > 0 and h > 0 else None
+
+    @property
+    def dashboard_version(self) -> int:
+        """The dashboard layout the device draws (``caps.dashboard.v``), or 0 when it has none."""
+        dash = self.caps.get("dashboard")
+        v = dash.get("v") if isinstance(dash, dict) else None
+        return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
 
     def action_names(self) -> list[str]:
         return [a["name"] for a in self.actions]
@@ -338,6 +347,21 @@ class DeviceSession:
         await self.send_json(protocol.message("image.end", stream=stream))
         return True
 
+    async def send_dashboard(self, dashboard: dict) -> bool:
+        """Send a dashboard snapshot if it differs from the last one delivered. False when it
+        wasn't sent: unchanged, or held until the screen lights up (only the latest is kept)."""
+        if self.display_sleeping:
+            self.hub._hold(self.device_id).dashboard = dashboard
+            return False
+        held = self.hub._held.get(self.device_id)
+        if held:
+            held.dashboard = None  # this one is newer
+        if dashboard == self._dashboard_sent:
+            return False
+        self._dashboard_sent = dashboard
+        await self.send_json(dashboard)
+        return True
+
     def _hold_view(self, view: tuple, ttl_s: float) -> bool:
         if not self.display_sleeping:
             held = self.hub._held.get(self.device_id)
@@ -355,6 +379,8 @@ class DeviceSession:
             return
         if held.status is not None:
             await self.send_status(held.status)
+        if held.dashboard is not None:
+            await self.send_dashboard(held.dashboard)
         if held.view is None:
             return
         ttl_s = held.ttl_s
