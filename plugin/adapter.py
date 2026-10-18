@@ -20,6 +20,7 @@ config.yaml::
           speak_replies: true    # auto-TTS for devices with a speaker
           auto_home: true        # first approved device becomes the gadget home channel
           unauthorized_dm_behavior: pair
+          dashboard: true        # sessions and status tiles on devices that draw them
 
 Secrets (``~/.hermes/.env``): ``GADGET_ACCESS_TOKEN`` (optional shared token).
 """
@@ -53,7 +54,7 @@ from gateway.platforms.base import (
 from gateway.platforms.event import MessageEvent, MessageType
 
 from . import audio as gaudio
-from . import imaging, ota, runtime, textfmt
+from . import dashboard, imaging, ota, runtime, textfmt
 from .battery_log import BatteryLog
 from .hub import DeviceHub, DeviceSession, HubDelegate
 from .store import DeviceStore
@@ -66,6 +67,8 @@ PAIRING_TTL_S = 3600          # mirrors Hermes's pairing-code lifetime
 PAIRING_POLL_S = 2.0
 PAIRING_GRACE_S = 6.0
 UPDATE_POLL_S = 3.0           # how often staged firmware ('hermes gadget update') is looked for
+DASHBOARD_POLL_S = 2.0        # how often tiles ('hermes gadget tile') and expiries are looked at
+DASHBOARD_SETTLE_S = 0.3      # session changes this close together go out as one dashboard
 # Trigger text for Hermes's unauthorized-DM flow. Never reaches the agent while the
 # device is unpaired; if approval races it, it is a cheap read-only command.
 PAIRING_TRIGGER = "/status"
@@ -182,6 +185,11 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         self._speak_replies = _flag(extra.get("speak_replies"), True)
         self._auto_home = _flag(extra.get("auto_home"), True)
         self._battery_log_on = _flag(extra.get("battery_log"), False)
+        self._dashboard_on = _flag(extra.get("dashboard"), True)
+        self._tiles: Optional[dashboard.TileStore] = None
+        self._dashboard_task: Optional[asyncio.Task] = None
+        self._dashboard_wake: Optional[asyncio.Event] = None
+        self._board_unsubscribe = None
         self._battery_log: Optional[BatteryLog] = None
         self._tls_cert = extra.get("tls_cert")
         self._tls_key = extra.get("tls_key")
@@ -233,6 +241,11 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
         runtime.register(self._registry_key, self)
         self._watch_task = asyncio.create_task(self._watch_pairing())
         self._update_task = asyncio.create_task(self._watch_updates())
+        if self._dashboard_on:
+            self._tiles = dashboard.TileStore(plugin_data_dir(PLATFORM_NAME))
+            self._dashboard_wake = asyncio.Event()
+            self._board_unsubscribe = dashboard.BOARD.subscribe(self._board_changed)
+            self._dashboard_task = asyncio.create_task(self._watch_dashboard())
         self._mark_connected()
         self._wire_plugin_handlers(None)
         logger.info("[%s] devices connect to %s://<this host>:%s%s", self.name,
@@ -241,10 +254,13 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
 
     async def disconnect(self) -> None:
         runtime.unregister(self._registry_key, self)
-        for task in (self._watch_task, self._update_task):
+        if self._board_unsubscribe:
+            self._board_unsubscribe()
+            self._board_unsubscribe = None
+        for task in (self._watch_task, self._update_task, self._dashboard_task):
             if task:
                 task.cancel()
-        self._watch_task = self._update_task = None
+        self._watch_task = self._update_task = self._dashboard_task = None
         if self._hub:
             await self._hub.stop()
             self._hub = None
@@ -275,6 +291,7 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
             self._store.clear_pairing(session.device_id)
             await self._claim_home(session)
             await self._show_prompt(session)  # a question asked while it was away
+            await self._push_dashboard(session)
             return
         self._prompts.pop(session.device_id, None)  # unpaired while away: its questions are void
         cached = self._store.pairing_for(session.device_id)
@@ -312,12 +329,48 @@ class GadgetAdapter(BasePlatformAdapter, HubDelegate):
                         await session.set_paired(True)
                         logger.info("[%s] device %s approved", self.name, session.device_id)
                         await self._claim_home(session)
+                        await self._push_dashboard(session)
                     elif not verdict and session.paired:
                         self._prompts.pop(session.device_id, None)
                         await session.set_paired(False)
                         await self.on_ready(session)
                 except Exception as exc:
                     logger.debug("[%s] pairing sync failed for %s: %s", self.name, session.device_id, exc)
+
+    # -- dashboard ----------------------------------------------------------------------
+
+    def _board_changed(self) -> None:
+        """A session changed state (called on an agent thread)."""
+        loop, wake = self._loop, self._dashboard_wake
+        if loop is not None and wake is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(wake.set)
+
+    async def _watch_dashboard(self) -> None:
+        """Keep dashboards current: at once after a session change, and every few seconds for
+        tiles set from the CLI and for what expired. Devices only get what changed."""
+        while True:
+            try:
+                await asyncio.wait_for(self._dashboard_wake.wait(), DASHBOARD_POLL_S)
+                await asyncio.sleep(DASHBOARD_SETTLE_S)
+            except asyncio.TimeoutError:
+                pass
+            self._dashboard_wake.clear()
+            try:
+                await self._push_dashboard()
+            except Exception as exc:
+                logger.debug("[%s] dashboard update failed: %s", self.name, exc)
+
+    async def _push_dashboard(self, only: Optional[DeviceSession] = None) -> None:
+        if self._hub is None or self._tiles is None:
+            return
+        targets = [only] if only is not None else list(self._hub.sessions.values())
+        targets = [s for s in targets if s.paired and not s.closed and s.dashboard_version >= dashboard.VERSION]
+        if not targets:
+            return
+        sessions, tiles = dashboard.BOARD.sessions(), self._tiles.tiles()
+        for session in targets:
+            await session.send_dashboard(dashboard.message(
+                sessions, tiles, charset=session.charset, cols=session.display.get("text_cols")))
 
     # -- firmware updates -------------------------------------------------------------
 

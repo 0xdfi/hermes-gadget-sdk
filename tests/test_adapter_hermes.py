@@ -28,7 +28,7 @@ class _Ctx:
     real (PlatformEntry rejects unknown keyword arguments, so this also pins our register() call)."""
 
     def __init__(self):
-        self.tools, self.cli = [], []
+        self.tools, self.cli, self.hooks = [], [], []
 
     def register_platform(self, name, label, adapter_factory, check_fn, validate_config=None,
                           required_env=None, install_hint="", **kw):
@@ -45,6 +45,12 @@ class _Ctx:
     def register_cli_command(self, **kw):
         self.cli.append(kw["name"])
 
+    def register_hook(self, name, callback):
+        from hermes_cli.plugins import VALID_HOOKS
+
+        assert name in VALID_HOOKS, name  # a hook this Hermes doesn't fire would never be called
+        self.hooks.append(name)
+
 
 @pytest.fixture(scope="module", autouse=True)
 def registered_platform():
@@ -54,6 +60,7 @@ def registered_platform():
     hermes_gadget_plugin.register(ctx)
     assert set(ctx.tools) == {"gadget_devices", "gadget_display", "gadget_action"}
     assert ctx.cli == ["gadget"]
+    assert "pre_llm_call" in ctx.hooks and "pre_approval_request" in ctx.hooks
     return ctx
 
 
@@ -710,3 +717,87 @@ def test_battery_log_records_paired_state_readings_only_when_enabled(loop_thread
             assert log.read_text().splitlines()[1].split(",")[2:5] == ["3950", "72", "0"]
     finally:
         loop_thread.run(adapter.disconnect())
+
+
+@pytest.fixture
+def board():
+    from hermes_gadget_plugin import dashboard
+
+    dashboard.BOARD._sessions.clear()  # the board is process-wide, as Hermes's hooks are
+    yield dashboard.BOARD
+    dashboard.BOARD._sessions.clear()
+
+
+def _dashboards(sim, since: int = 0) -> list:
+    return [m for m in sim.received[since:] if m.get("type") == "dashboard"]
+
+
+def _dashboard_states(sim) -> dict:
+    msg = sim.last_received("dashboard") or {}
+    return {row["label"]: row["state"] for row in msg.get("sessions", [])}
+
+
+def test_the_dashboard_follows_hermes_sessions(gadget, make_sim, board):
+    import threading
+
+    board.pre_llm_call(session_id="20261018_9f3c", platform="telegram")
+    sim = _paired_sim(gadget, make_sim)
+    assert sim.wait_for(lambda: _dashboard_states(sim) == {"telegram 9f3c": "busy"}, timeout=5)
+
+    def agent_thread():  # Hermes calls hooks on its agent threads
+        board.pre_approval_request(session_id="20261018_9f3c", command="ls")
+        board.on_session_start(session_id="cli_77de", platform="cli")
+
+    threading.Thread(target=agent_thread).start()
+    assert sim.wait_for(lambda: _dashboard_states(sim) == {"telegram 9f3c": "waiting", "cli 77de": "idle"},
+                        timeout=5)
+    quiet = len(sim.received)
+    sim.run_for(2.5)  # polls with nothing new send nothing
+    assert _dashboards(sim, quiet) == []
+
+    sim.tap("cancel")
+    assert sim.wait_screen("dashboard", timeout=5)
+    board.on_session_end(session_id="20261018_9f3c")
+    assert sim.wait_for(lambda: _dashboard_states(sim).get("telegram 9f3c") == "idle", timeout=5)
+    assert sim.status()["screen"] == "dashboard"
+
+
+def test_tiles_set_from_the_cli_reach_the_dashboard(gadget, make_sim, board, tmp_path):
+    from hermes_gadget_plugin.dashboard import TileStore
+
+    sim = _paired_sim(gadget, make_sim)
+    assert sim.wait_for(lambda: sim.last_received("dashboard") is not None, timeout=5)
+    TileStore(tmp_path / "plugin-data" / "gadget").set("nas", "up", state="ok", label="NAS")
+    assert sim.wait_for(lambda: (sim.last_received("dashboard") or {}).get("tiles")
+                        == [{"id": "nas", "label": "NAS", "value": "up", "state": "ok"}], timeout=6)
+
+
+def test_unpaired_devices_get_no_dashboard(gadget, make_sim, board):
+    board.pre_llm_call(session_id="secret_abcd", platform="telegram")
+    sim = make_sim(gadget.url)
+    assert sim.wait_screen("pairing", timeout=10)
+    sim.run_for(2.5)
+    assert sim.last_received("dashboard") is None
+    gadget.authorized.add(sim.status()["device_id"])
+    assert sim.wait_for(lambda: sim.last_received("dashboard") is not None, timeout=8)
+
+
+def test_a_dark_screen_gets_only_the_latest_dashboard_when_it_wakes(gadget, make_sim, board):
+    sim = _paired_sim(gadget, make_sim)
+    assert sim.wait_for(lambda: sim.last_received("dashboard") is not None, timeout=5)
+    session = next(iter(gadget.adapter.hub.sessions.values()))
+    assert sim.console("set screen_timeout 1").startswith("@ok")
+    assert sim.wait_for(lambda: session.display_sleeping, timeout=5)
+    before = len(sim.received)
+    board.pre_llm_call(session_id="a_1111", platform="cli")
+    sim.run_for(0.6)
+    board.on_session_end(session_id="a_1111")
+    board.pre_llm_call(session_id="b_2222", platform="cli")
+    sim.run_for(1.0)
+    assert _dashboards(sim, before) == []
+    sim.tap("talk")  # only wakes the screen
+    assert sim.wait_for(lambda: _dashboards(sim, before), timeout=5)
+    sim.run_for(0.5)
+    woke = _dashboards(sim, before)
+    assert len(woke) == 1
+    assert {r["label"]: r["state"] for r in woke[0]["sessions"]} == {"cli 2222": "busy", "cli 1111": "idle"}

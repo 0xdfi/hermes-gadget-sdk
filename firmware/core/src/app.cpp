@@ -30,6 +30,8 @@ constexpr uint8_t kPromptLines = 4;           // ...and on a question (the rende
 constexpr uint32_t kFrameMs = 100;
 constexpr uint32_t kSensorIntervalMs = 2000;
 constexpr uint32_t kDefaultCardMs = 15000;
+constexpr int kDashboardVersion = 1;    // the dashboard message this firmware draws
+constexpr size_t kDashMaxEach = 12;     // sessions, and tiles, kept from one dashboard message
 constexpr size_t kMicChunkSamples = 640;  // 40 ms at 16 kHz per binary frame
 constexpr size_t kOtaAckBytes = 16 * 1024;  // a firmware update acknowledges every 16 KB written
 constexpr uint32_t kOtaIdleMs = 30000;      // ...and is abandoned when no data comes for this long
@@ -84,7 +86,7 @@ const App::Route App::kRoutes[] = {
     {"transcript", &App::h_transcript},   {"prompt", &App::h_prompt},
     {"prompt.close", &App::h_prompt_close}, {"ota.offer", &App::h_ota_offer},
     {"ota.begin", &App::h_ota_begin},     {"ota.end", &App::h_ota_end},
-    {"ota.abort", &App::h_ota_abort},
+    {"ota.abort", &App::h_ota_abort},     {"dashboard", &App::h_dashboard},
 };
 
 App::App(Hal& hal, DeviceProfile profile) : hal_(hal), profile_(std::move(profile)) {}
@@ -273,6 +275,9 @@ void App::drop_session(std::string_view reason) {
   mode_ = Mode::Idle;
   overlay_ = Overlay::None;
   image_stream_ = -1;
+  // What the dashboard showed is stale now; the next connection sends it afresh.
+  dashboard_ready_ = false;
+  dash_rows_.clear();
   clear_prompt();
   transport_active_ = false;
   schedule_reconnect();
@@ -338,6 +343,11 @@ void App::send_hello() {
   if (profile_.has_scroll_buttons) inputs.push("up").push("down");
   caps.set("inputs", inputs);
   caps.set("talk_mode", talk_mode_ == TalkMode::Tap ? "tap" : "hold");
+  if (ui_ && can_open_dashboard()) {
+    json::Value dash = json::Value::object();
+    dash.set("v", kDashboardVersion).set("rows", ui_->dash_rows());
+    caps.set("dashboard", dash);
+  }
   if (hal_.updater) {
     json::Value ota = json::Value::object();
     ota.set("max_size", hal_.updater->capacity());
@@ -617,6 +627,44 @@ void App::h_display(const json::Value& m) {
   overlay_until_ = ttl <= 0 ? 0 : now() + static_cast<uint32_t>(ttl * 1000);
 }
 
+// A full snapshot: it replaces what the dashboard showed. Unlike a card it doesn't
+// light the screen; the user opens the dashboard to look.
+void App::h_dashboard(const json::Value& m) {
+  if (m["v"].as_int(kDashboardVersion) != kDashboardVersion) return;  // a layout this firmware can't draw
+  auto tone = [](std::string_view state) {
+    if (state == "busy") return DashRow::Tone::Busy;
+    if (state == "waiting") return DashRow::Tone::Waiting;
+    if (state == "ok") return DashRow::Tone::Good;
+    if (state == "warn") return DashRow::Tone::Warn;
+    if (state == "bad") return DashRow::Tone::Bad;
+    return DashRow::Tone::Dim;
+  };
+  std::vector<DashRow> rows;
+  int busy = 0, waiting = 0;
+  const json::Value& sessions = m["sessions"];
+  rows.push_back({"Hermes sessions", "", DashRow::Tone::Dim, true});
+  for (size_t i = 0; i < sessions.size() && i < kDashMaxEach; ++i) {
+    const json::Value& s = sessions[i];
+    const std::string state(s["state"].str_or("idle"));
+    busy += state == "busy";
+    waiting += state == "waiting";
+    rows.push_back({s["label"].as_string(), state == "waiting" ? "approval" : state, tone(state), false});
+  }
+  if (rows.size() == 1) rows.push_back({"No sessions", "", DashRow::Tone::Dim, false});
+  const json::Value& tiles = m["tiles"];
+  if (tiles.size()) rows.push_back({"Status", "", DashRow::Tone::Dim, true});
+  for (size_t i = 0; i < tiles.size() && i < kDashMaxEach; ++i) {
+    const json::Value& t = tiles[i];
+    rows.push_back({t["label"].as_string(), t["value"].as_string(), tone(t["state"].str_or("")), false});
+  }
+  dash_rows_ = std::move(rows);
+  dash_headline_ = waiting ? std::to_string(waiting) + " waiting"
+                   : busy  ? std::to_string(busy) + " busy"
+                           : "All idle";
+  dashboard_ready_ = true;
+  if (ui_) dash_scroll_ = std::min(dash_scroll_, std::max(0, static_cast<int>(dash_rows_.size()) - ui_->dash_rows()));
+}
+
 void App::h_image_start(const json::Value& m) {
   close_setup_screens();
   wake_display();
@@ -821,6 +869,12 @@ void App::on_button(Button button, bool pressed) {
       } else if (mode_ == Mode::Listening) cancel_listening("cancelled");
       else if (overlay_ != Overlay::None) dismiss_overlay();
       else if (mode_ == Mode::Thinking || mode_ == Mode::Responding) cancel_turn();
+      else if (dashboard_ready_ && paired_) {
+        overlay_ = Overlay::Dashboard;
+        overlay_until_ = 0;
+        dash_scroll_ = 0;
+        page_at_ = now() + page_dwell_ms();
+      }
       if (hint_flash_.rfind("New session in", 0) == 0) hint_flash_until_ = now();
       break;
     case Button::Up:
@@ -990,6 +1044,12 @@ void App::submit_text(std::string_view text) {
 }
 
 void App::scroll_body(int delta) {
+  if (overlay_ == Overlay::Dashboard) {
+    if (!ui_) return;
+    const int max_first = std::max(0, static_cast<int>(dash_rows_.size()) - ui_->dash_rows());
+    dash_scroll_ = std::max(0, std::min(max_first, dash_scroll_ + delta));
+    return;
+  }
   const bool card = overlay_ == Overlay::Card;
   const std::string& body = card ? card_body_ : reply_;
   if (body.empty() || !ui_) return;
@@ -1008,6 +1068,13 @@ uint32_t App::page_dwell_ms() const {
 bool App::turn_page() {
   // Only text screens that are read from the top page; a streaming reply stays pinned to its end.
   if (!ui_ || model_.hero) return false;
+  if (model_.screen == Screen::Dashboard) {
+    // A dashboard longer than the screen cycles through its pages, back to the top.
+    const int rows = ui_->dash_rows(), total = static_cast<int>(dash_rows_.size());
+    if (total <= rows) return false;
+    dash_scroll_ = dash_scroll_ >= total - rows ? 0 : std::min(total - rows, dash_scroll_ + std::max(1, rows - 1));
+    return true;
+  }
   int* pos = nullptr;
   const std::string* body = nullptr;
   if (model_.screen == Screen::Card) {
@@ -1386,6 +1453,7 @@ void App::update_model() {
   m.yes.clear();
   m.no.clear();
   m.qr = nullptr;
+  m.dash.clear();
   m.hero = false;
   m.caption_lines = 1;
   m.scroll = scroll_;
@@ -1532,6 +1600,12 @@ void App::update_model() {
     m.screen = Screen::Image;
     m.headline = "Image";
     m.hint = profile_.cancel_label + " to close";
+  } else if (overlay_ == Overlay::Dashboard) {
+    m.screen = Screen::Dashboard;
+    m.headline = dash_headline_;
+    m.dash = dash_rows_;
+    m.scroll = dash_scroll_;
+    m.hint = profile_.touch_screen ? "Swipe down to close" : profile_.cancel_label + " to close";
   } else if (overlay_ == Overlay::Card) {
     m.screen = Screen::Card;
     m.headline = card_title_.empty() ? "Hermes" : card_title_;
@@ -1575,6 +1649,8 @@ void App::update_model() {
     if (m.hero) {
       m.headline = "Hi, I'm Hermes";
       m.detail = reply_.empty() || !profile_.has_scroll_buttons ? "Ask me anything" : "UP shows my last reply";
+      if (dashboard_ready_ && can_open_dashboard() && reply_.empty())
+        m.detail = profile_.touch_screen ? "Swipe down for sessions" : profile_.cancel_label + " shows sessions";
     }
   }
   bool keeps_detail = m.screen == Screen::Pairing || m.screen == Screen::Boot || m.screen == Screen::Prompt;
