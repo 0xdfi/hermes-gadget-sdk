@@ -108,6 +108,18 @@ ID scheme. No vendor application, ESP-SR code or legacy I2C driver is copied.
 The managed esp_lcd_st77916 2.0.2 driver keeps its Apache License 2.0; source
 and binary packages include LICENSES/Apache-2.0.txt and matching notices.
 
+The ST77916 initialization table in firmware/esp32/main/panel_vocat.hpp is
+adapted from Espressif's ESP-VoCat BSP,
+https://github.com/espressif/esp-bsp/tree/f259a6abd5808019b1903a422092a4234ca95a51/bsp/esp_vocat,
+file bsp/esp_vocat/priv_include/disp_init_data.h,
+Copyright 2026 Espressif Systems (Shanghai) CO LTD, Apache License 2.0.
+The adapter expresses the register payloads as C++ byte strings; the values,
+order and delays are unchanged. The ESP-VoCat v1.2 pin map and power switching
+in firmware/esp32/main/board.cpp follow the same BSP and Espressif's ESP-VoCat
+v1.2 schematic, https://dl.espressif.com/AE/esp-dev-kits/ESP-VoCat_SCH_V1_2.pdf.
+Only these hardware facts are used. A copy of the license is in
+LICENSES/Apache-2.0.txt.
+
 The CrowPanel 2.1 ST7701 initialization values in
 firmware/esp32/main/crowpanel_st7701_init.hpp, and the RGB timings, PCF8574
 power and reset sequence and pin map in port_rgb.cpp and board.cpp, follow

@@ -508,6 +508,50 @@ The USB-C port is the S3's own USB Serial/JTAG, used for flashing and the serial
 
 The pin map follows xiaozhi-esp32's `spotpear/sp-esp32-s3-1.54-muma` board at commit `d91d682`; see [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
 
+## ESP-VoCat
+
+Board option `esp-vocat`, for Espressif's ESP-VoCat AI companion kit, **v1.2 only** (the version is on the mainboard's silkscreen). It has an ESP32-S3-WROOM-1 module with 16 MB flash and 16 MB octal PSRAM, a round 1.85" 360×360 ST77916 panel over QSPI, a CST816S touchscreen, an ES8311 DAC driving an NS4150B 3 W amplifier, an ES7210 with two microphones, a BMI270 IMU, a BQ27220 fuel gauge, a green LED, two capacitive touch pads on its head, a microSD slot, and RST, BOOT and POWER keys. It ships with an ESP-Brookesia chatbot firmware. This port is experimental.
+
+v1.0 boards are not supported: v1.2 moved the microphone data line (GPIO 15 to 3), the amplifier enable (4 to 15) and the LCD reset (3 to 47), and added the codec supply switch on GPIO 48.
+
+**Back up the whole flash before the first flash.** The board has no other copy of its factory firmware:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0 ALL vocat-factory.bin
+```
+
+Writing that file back at `0x0` restores the original firmware.
+
+| Part | Chip | Connection |
+|---|---|---|
+| Display | ST77916, QSPI | SCLK 18, D0 46, D1 13, D2 11, D3 12, CS 14; RST 47, active high (through an inverting FET); backlight GPIO 44, active high |
+| Power rails | | GPIO 9 low switches the LCD/SD 3.3 V rail on; GPIO 48 high switches the codec supply on |
+| Touch | CST816S | I2C 0x15 on SDA 2, SCL 1; INT 10; no reset line |
+| Speaker DAC | ES8311 | I2C 0x18; I2S MCLK 42, BCLK 40, WS 39, DOUT 41; NS4150B amplifier enable GPIO 15, active high |
+| Microphone ADC | ES7210 | I2C 0x40; I2S DIN 3; microphones on MIC1 and MIC2, the speaker output looped back on MIC3 |
+| Keys | | BOOT GPIO 0 (TALK), under the base; RST and POWER act on the hardware only |
+| Unused by this profile | | BMI270 IMU (I2C 0x68, INT1 GPIO 21), BQ27220 fuel gauge (I2C 0x55), touch pads GPIO 6 and 7, green LED GPIO 43 (active low), microSD (CLK 16, CMD 38, D0 17), UART1 on the magnetic connector (RX 4, TX 5) |
+
+All I2C parts share one bus. GPIO 43 and 44 are UART0's pins, so the serial console is the S3's USB Serial/JTAG on the USB-C port. Hold the screen or BOOT to talk, and swipe down to cancel. The firmware doesn't read the battery or the head pads yet, and doesn't use the MIC3 loopback for echo cancellation.
+
+**Build and flash it** with PlatformIO:
+
+```bash
+cd firmware/esp32
+pio run -e esp-vocat -t upload -t monitor
+```
+
+### First flash: what to check
+
+1. **Boot log:** the `hg.lcd` line reads `st77916 360x360 ready` after the panel ID, and the `hg.diag` parts line reads `display st77916, microphone es7210, speaker es8311`, with touch ready.
+2. **Screen:** the mascot is upright, centred in the circle and not mirrored, and the colors are right (amber accents, not blue). A negative-looking image means `lcd.invert` is wrong.
+3. **Brightness:** the settings menu's brightness steps dim the screen, and 100 percent is the brightest.
+4. **Touch:** holding the screen records, a swipe down cancels, and taps land where you touch.
+5. **Microphone:** hold the screen and speak; the waves move with your voice and Hermes's transcript is right.
+6. **Speaker:** replies are clear and loud enough (`set volume 80`).
+
+The pin map follows Espressif's esp-bsp `bsp/esp_vocat` at commit `f259a6a` and the ESP-VoCat v1.2 schematic; the panel's start-up table comes from the same BSP. See [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md).
+
 ## Elecrow CrowPanel 2.1-inch HMI
 
 Board option `crowpanel-21`, for Elecrow's 2.1" round rotary display: an ESP32-S3R8 (8 MB octal PSRAM) with 16 MB flash, a 480×480 round ST7701 panel on a 16-bit RGB bus, a CST-family capacitive touchscreen, a rotary encoder with a push button, and a PCF8574 I/O expander for panel power, resets and the encoder button. **This board has no microphone or speaker**, so it works as a text gadget: Hermes replies, cards and prompts appear on the screen and typed messages go out through the USB console.

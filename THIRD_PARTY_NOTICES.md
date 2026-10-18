@@ -53,6 +53,16 @@ and PCM conversion adapters are original code using documented hardware facts.
 The existing `LICENSES/Apache-2.0.txt` supplies the license text; packaging
 includes it, this attribution, and the managed driver licenses.
 
+The ESP-VoCat port uses the same managed ST77916 driver.
+`firmware/esp32/main/panel_vocat.hpp` adapts the initialization table from
+Espressif's [ESP-VoCat BSP](https://github.com/espressif/esp-bsp/tree/f259a6abd5808019b1903a422092a4234ca95a51/bsp/esp_vocat)
+at commit `f259a6abd5808019b1903a422092a4234ca95a51`,
+`bsp/esp_vocat/priv_include/disp_init_data.h` (Apache 2.0, Copyright 2026
+Espressif Systems (Shanghai) CO LTD). Changes: C++ byte-string payloads; the
+values, order and delays are unchanged. The board's pin map follows the same BSP
+and Espressif's [ESP-VoCat v1.2 schematic](https://dl.espressif.com/AE/esp-dev-kits/ESP-VoCat_SCH_V1_2.pdf);
+see [NOTICE](NOTICE).
+
 The T-Display-S3 ST7789 initialization values and AW9364 backlight control follow
 [LilyGO's factory example](https://github.com/Xinyuan-LilyGO/T-Display-S3/blob/ec889e789b3cf093412689a143f7f37b42b56af7/examples/factory/factory.ino),
 revision `ec889e789b3cf093412689a143f7f37b42b56af7`, MIT, Copyright (c) 2022 Xinyuan-LilyGO.
