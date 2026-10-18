@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "panel_box3.hpp"
 #include "panel_cores3.hpp"
+#include "panel_vocat.hpp"
 #include "panel_ws185.hpp"
 #include "freertos/task.h"
 
@@ -137,8 +138,11 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
     io_ = nullptr;
     io_cfg.pclk_hz = full_speed;
     ESP_LOGI(TAG, "ST77916 panel ID %02x %02x %02x %02x", panel_id[0], panel_id[1], panel_id[2], panel_id[3]);
-    if (read != ESP_OK || panel_id[0] != 0 || panel_id[2] != 0x7f || panel_id[3] != 0x7f ||
-        (panel_id[1] != 0x7f && panel_id[1] != 0x02)) {
+    // The ID only chooses between Waveshare's two tables; a board with its own
+    // table logs it and goes on.
+    if (cfg.st77916_panel == St77916Panel::Waveshare185 &&
+        (read != ESP_OK || panel_id[0] != 0 || panel_id[2] != 0x7f || panel_id[3] != 0x7f ||
+         (panel_id[1] != 0x7f && panel_id[1] != 0x02))) {
       ESP_LOGE(TAG, "unknown ST77916 panel revision; refusing guessed initialization");
       return false;
     }
@@ -155,9 +159,14 @@ bool SpiDisplay::begin(const LcdConfig& cfg, i2c_master_bus_handle_t i2c_bus) {
   if (qspi) {
     const bool newer = panel_id[1] == 0x02;
     st_vendor.flags.use_qspi_interface = 1;
-    st_vendor.init_cmds = newer ? kWs185PanelNew : kWs185PanelDefault;
-    st_vendor.init_cmds_size = newer ? sizeof(kWs185PanelNew) / sizeof(kWs185PanelNew[0]) :
-                                     sizeof(kWs185PanelDefault) / sizeof(kWs185PanelDefault[0]);
+    if (cfg.st77916_panel == St77916Panel::Vocat) {
+      st_vendor.init_cmds = kVocatPanel;
+      st_vendor.init_cmds_size = sizeof(kVocatPanel) / sizeof(kVocatPanel[0]);
+    } else {
+      st_vendor.init_cmds = newer ? kWs185PanelNew : kWs185PanelDefault;
+      st_vendor.init_cmds_size = newer ? sizeof(kWs185PanelNew) / sizeof(kWs185PanelNew[0]) :
+                                       sizeof(kWs185PanelDefault) / sizeof(kWs185PanelDefault[0]);
+    }
     panel_cfg.vendor_config = &st_vendor;
     if (!esp_ok(esp_lcd_new_panel_st77916(io_, &panel_cfg, &panel_), TAG, "esp_lcd_new_panel_st77916")) return false;
   } else if (ili9341) {

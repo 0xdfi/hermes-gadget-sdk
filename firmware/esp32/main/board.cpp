@@ -30,6 +30,8 @@ namespace {
 #define HG_BOARD_NAME "m5stack-cores3"
 #elif CONFIG_HG_BOARD_WS_ESP32S3_TOUCH_LCD_185C_V2
 #define HG_BOARD_NAME "waveshare-esp32-s3-touch-lcd-1.85c-v2"
+#elif CONFIG_HG_BOARD_ESP_VOCAT
+#define HG_BOARD_NAME "esp-vocat"
 #elif CONFIG_HG_BOARD_T_DISPLAY_S3
 #define HG_BOARD_NAME "tdisplay-s3"
 #elif CONFIG_HG_BOARD_CROWPANEL_21
@@ -495,6 +497,55 @@ BoardConfig make() {
   b.buttons = {42, 1, -1, -1};
   b.talk_label = "BOOT";
   b.cancel_label = "PWR";
+  return b;
+}
+#elif CONFIG_HG_BOARD_ESP_VOCAT
+// Espressif ESP-VoCat v1.2: ESP32-S3-WROOM-1 (16 MB flash, 16 MB octal PSRAM),
+// round 1.85" 360x360 ST77916 over QSPI, CST816S touch, ES8311 DAC into an
+// NS4150B amplifier, ES7210 with two microphones on MIC1/MIC2 (MIC3 carries the
+// speaker loopback, unused here). v1.0 boards wire audio and LCD reset
+// differently and are not supported.
+// Pins: esp-bsp bsp/esp_vocat and Espressif's v1.2 schematic, pinned in
+// docs/hardware.md#esp-vocat.
+BoardConfig make() {
+  BoardConfig b{};
+  b.name = kBoardName;
+  // GPIO9 low switches the LCD/SD 3.3 V rail on (P-FET); GPIO48 high enables
+  // the codec supply. Both must be on before the panel, touch and codecs start.
+  b.power_rails[0] = {9, false};
+  b.power_rails[1] = {48, true};
+  b.power_rails_settle_ms = 20;
+  b.lcd.enabled = true;
+  b.lcd.controller = LcdController::St77916;
+  b.lcd.st77916_panel = St77916Panel::Vocat;
+  b.lcd.width = b.lcd.height = 360;
+  b.lcd.swap_xy = b.lcd.mirror_x = b.lcd.mirror_y = false;
+  b.lcd.round = true;
+  b.lcd.sclk = 18;
+  b.lcd.mosi = 46;  // QSPI D0
+  b.lcd.d1 = 13;
+  b.lcd.d2 = 11;
+  b.lcd.d3 = 12;
+  b.lcd.cs = 14;
+  b.lcd.rst = 47;
+  b.lcd.reset_active_high = true;  // drives an inverting FET on LCD_RST
+  b.lcd.backlight = 44;            // the UART0 RX pin; the console is USB-Serial-JTAG
+  b.lcd.spi_mhz = 80;
+  b.i2c = {2, 1, 400000};
+  b.codec.enabled = true;
+  b.codec.mclk = 42;
+  b.codec.bclk = 40;
+  b.codec.ws = 39;
+  b.codec.dout = 41;
+  b.codec.din = 3;
+  b.codec.pa = 15;
+  b.touch.enabled = true;
+  b.touch.controller = TouchController::Cst816;
+  b.touch.addr = 0x15;  // INT on GPIO 10; the CST816 driver polls
+  b.touch.width = b.touch.height = 360;
+  b.buttons = {0, -1, -1, -1};  // BOOT, under the base
+  b.talk_label = "BOOT";
+  b.cancel_label = "Swipe down";
   return b;
 }
 #elif CONFIG_HG_BOARD_SPOTPEAR_MUMA
