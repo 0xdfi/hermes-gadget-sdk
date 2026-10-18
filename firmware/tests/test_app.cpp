@@ -2633,3 +2633,56 @@ TEST("phone: the pairing screen stays lit through the screen timeout") {
   r.app.on_phone_passkey(123456);
   CHECK_EQ(r.fake.brightness, 0);
 }
+
+namespace {
+// The last state message about the screen (sensor readings also travel as state).
+const Value* last_screen_state(const FakeHal& fake) {
+  for (auto it = fake.sent.rbegin(); it != fake.sent.rend(); ++it)
+    if ((*it)["type"].as_string() == "state" && (*it)["display_sleeping"].is_bool()) return &*it;
+  return nullptr;
+}
+}  // namespace
+
+TEST("power: Hermes is told at once when the screen goes dark and lights up") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  CHECK(!(*r.fake.last("hello"))["display_sleeping"].as_bool());  // omitted while lit
+  CHECK_EQ(r.app.console("set screen_timeout 30"), std::string("@ok screen_timeout"));
+  r.fake.sent.clear();
+  r.advance(29000);
+  CHECK(last_screen_state(r.fake) == nullptr);  // dimmed is still lit
+  r.advance(1100);
+  CHECK_EQ(r.fake.brightness, 0);
+  const Value* dark = last_screen_state(r.fake);
+  CHECK(dark && (*dark)["display_sleeping"].as_bool());
+  r.fake.sent.clear();
+  r.advance(5000);
+  CHECK(last_screen_state(r.fake) == nullptr);  // only changes are sent
+  key.presses = 1;
+  r.advance(100);
+  const Value* lit = last_screen_state(r.fake);
+  CHECK(lit && (*lit)["display_sleeping"].is_bool() && !(*lit)["display_sleeping"].as_bool());
+}
+
+TEST("power: a device that reconnects in the dark says so in its hello") {
+  KeyPower key;
+  Rig r;
+  r.fake.backlight = true;
+  r.hal.power = &key;
+  r.bring_online(true);
+  key.presses = 1;
+  r.advance(100);
+  r.app.on_transport_closed("gone");
+  r.fake.sent.clear();
+  r.advance(5000);
+  r.app.on_transport_open();
+  const Value* hello = r.fake.last("hello");
+  CHECK(hello && (*hello)["display_sleeping"].as_bool());
+  r.server(R"({"type":"challenge","nonce":"bm9uY2U=","enrolled":true})");
+  r.server(R"({"type":"welcome","session":"s2","heartbeat_s":20,"paired":true})");
+  r.advance(100);
+  CHECK(last_screen_state(r.fake) == nullptr);  // the hello already said it
+}

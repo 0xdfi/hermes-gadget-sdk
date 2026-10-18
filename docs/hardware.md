@@ -686,9 +686,21 @@ gadget> wifi
 - `tested` turns true once the device has joined the network with its saved password. Saving a new password for a network clears it again. `wifi add` does not check the password, so a network saved out of range shows `false` until the device first joins it.
 - When the link drops, the device retries the same network once. If that fails too, it scans and joins the first network if the scan saw it, else the strongest saved network it saw. A network that failed twice is passed over while another saved one is in range. When the scan finds no saved network, for example because it is hidden, the device tries the next one in the list. With one saved network it never scans and retries as before.
 - `set wifi_ssid` and `set wifi_pass` work on the first network: setting a new name saves that network first and keeps the others. If five are saved, the last one is dropped. An empty `wifi_ssid` forgets the first network. [Phone setup](setup-board.md#set-up-wi-fi-with-your-phone) saves its network first the same way.
-- `factory-reset` forgets every network.
+- `factory-reset` forgets every network, and the access point it last joined.
 
 Machine-readable lines start with `@`, so tools can drive a bench device. `hermes-gadget provision` is a thin wrapper over these commands.
+
+### Wi-Fi reconnect
+
+A join that names no access point first scans every channel. To skip that, the device records the access point it joined after each good connection: its BSSID, its channel and the DHCP lease (key `wifi_fast`, written only when something changed).
+
+- **At boot and after the link drops,** the first attempt on the same network aims at that access point on that channel, with no scan.
+- **If that attempt fails,** for example because the router moved to another channel or the device is somewhere else, the device joins normally at once: the usual scan and retries in [saved Wi-Fi networks](#saved-wi-fi-networks). The failed fast attempt doesn't count against the network or lengthen the battery backoff. The next good join replaces the record.
+- **DHCP** asks for the last address first (`CONFIG_LWIP_DHCP_RESTORE_LAST_IP`, on for every board), which skips the discovery round when the router still has the lease.
+- **Static address (opt-in):** with `CONFIG_HG_WIFI_REUSE_IP` (menuconfig, **Hermes Gadget**), a fast join reuses the last lease as a static address and skips DHCP. Turn it on only when the router reserves that address for the device. Nothing renews the lease, and an address the router gave to someone else in the meantime conflicts. Every other join uses DHCP.
+- Forgetting a network forgets its record.
+
+How long a reconnect takes has not been measured on hardware for this firmware.
 
 ## Power-on sequence
 

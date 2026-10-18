@@ -21,6 +21,19 @@ menu "Hermes Gadget"
             default ""
     endmenu
 
+    config HG_WIFI_REUSE_IP
+        bool "Reuse the last DHCP address on a fast Wi-Fi rejoin"
+        default n
+        help
+            When the device rejoins the access point that last worked, take the
+            address, gateway and DNS server it last got from DHCP as a static
+            address instead of asking DHCP again. Only for a router that reserves
+            that address for the device: nothing renews the lease, and an address
+            given to someone else in the meantime conflicts. Every other join uses
+            DHCP. Without this option the device still asks DHCP for its last
+            address first (CONFIG_LWIP_DHCP_RESTORE_LAST_IP), which skips the
+            discovery round. docs/hardware.md#wi-fi-reconnect
+
     choice HG_BOARD
         prompt "Board"
         default HG_BOARD_ESP32S3_BREADBOARD
