@@ -10,6 +10,7 @@
 #include "esp_pm.h"
 #include "esp_psram.h"
 #include "esp_system.h"
+#include "freertos/task.h"
 #include "hg/touch.hpp"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -98,6 +99,22 @@ void add_status_led(hg::App& app, int gpio) {
   app.add_action(std::move(led));
 }
 
+// Supplies switched straight from a GPIO go on before anything talks to the
+// parts behind them.
+void power_rails_on(const hgp::BoardConfig& b) {
+  bool any = false;
+  for (const hgp::PowerRail& rail : b.power_rails) {
+    if (rail.gpio < 0) continue;
+    const auto pin = static_cast<gpio_num_t>(rail.gpio);
+    gpio_reset_pin(pin);
+    gpio_set_direction(pin, GPIO_MODE_OUTPUT);
+    gpio_set_level(pin, rail.on_level ? 1 : 0);
+    any = true;
+  }
+  // One tick more than the rounded-down count, so the wait is never shorter at 100 Hz.
+  if (any && b.power_rails_settle_ms) vTaskDelay(pdMS_TO_TICKS(b.power_rails_settle_ms) + 1);
+}
+
 // Light sleep disables every GPIO it doesn't know about; these must keep their
 // level so the panel, touch controller, amplifier and buses survive a doze.
 void keep_pins_through_sleep(const hgp::BoardConfig& b) {
@@ -105,6 +122,8 @@ void keep_pins_through_sleep(const hgp::BoardConfig& b) {
                       b.amoled.rst, b.touch.rst, b.codec.pa, b.i2c.sda, b.i2c.scl};
   for (int pin : pins)
     if (pin >= 0) gpio_sleep_sel_dis(static_cast<gpio_num_t>(pin));
+  for (const hgp::PowerRail& rail : b.power_rails)
+    if (rail.gpio >= 0) gpio_sleep_sel_dis(static_cast<gpio_num_t>(rail.gpio));
 }
 
 void dispatch(hg::App& app, hgp::Event& ev) {
@@ -185,6 +204,7 @@ extern "C" void app_main(void) {
   hgp::events::init();
   ESP_ERROR_CHECK(g_storage.begin() ? ESP_OK : ESP_FAIL);
   const hgp::BoardConfig& board = hgp::board_config();
+  power_rails_on(board);
   const bool latch_power = board.latch_power.enabled && g_latch_power.begin(board.latch_power);
   const char* version = esp_app_get_description()->version;
   ESP_LOGI(TAG, "Hermes Gadget %s on %s", version, board.name);

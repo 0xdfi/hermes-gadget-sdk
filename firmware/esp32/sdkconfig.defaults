@@ -28,6 +28,12 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 # 700 bytes of heap, by ESP-IDF's estimate.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_CROSS_SIGNED_VERIFY=y
 
+# Rejoining Wi-Fi: DHCP asks for the last address straight away (a DHCPREQUEST
+# without the discovery round) and lwIP keeps that address in NVS for the next boot.
+# The port also skips the channel scan for the access point that last worked
+# (drivers/wifi_fast.hpp).
+CONFIG_LWIP_DHCP_RESTORE_LAST_IP=y
+
 # Keep logs readable on the serial console that also carries the gadget console.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y

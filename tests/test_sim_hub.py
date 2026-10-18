@@ -436,14 +436,15 @@ def test_holding_cancel_starts_a_new_session(devserver, make_sim):
                         timeout=5)
 
 
-@pytest.mark.parametrize("board", ["sim-466x466-round", "sim-360x360-round"])
-def test_round_touch_board_talks_with_the_screen(devserver, make_sim, board):
+@pytest.mark.parametrize("board, centre", [("sim-466x466-round", 233), ("sim-360x360-round", 180),
+                                           ("sim-240x240-round", 120)])
+def test_round_touch_board_talks_with_the_screen(devserver, make_sim, board, centre):
     hub, _brain, url = devserver()
     sim = make_sim(url, board=board)
     assert sim.wait_screen("ready", timeout=10)
     hello = next(m for m in sim.sent if m["type"] == "hello")
     assert hello["caps"]["display"]["shape"] == "round" and "touch" in hello["caps"]["inputs"]
-    sim.touch(True, 233, 233)
+    sim.touch(True, centre, centre)
     assert sim.wait_screen("listening", timeout=2)
     sim.run_for(0.6)
     sim.touch(False)
@@ -518,3 +519,35 @@ def test_a_new_firmware_is_kept_once_it_reaches_hermes(devserver, make_sim):
     sim = make_sim(url, update_pending=True)
     assert sim.wait_screen("ready", timeout=10)
     assert sim.update_confirmed
+
+
+@pytest.mark.parametrize("board", ["sim-320x240", "sim-240x135", "sim-466x466-round"])
+def test_the_dashboard_opens_from_the_idle_screen(loop_thread, devserver, make_sim, board, tmp_path):
+    from hermes_gadget.devserver import SAMPLE_DASHBOARD
+    from hermes_gadget_plugin import dashboard
+
+    hub, _brain, url = devserver()
+    sim = make_sim(url, board=board)
+    assert sim.wait_screen("ready", timeout=10)
+    session = next(iter(hub.sessions.values()))
+    assert session.dashboard_version == 1
+    msg = dashboard.message(SAMPLE_DASHBOARD["sessions"], SAMPLE_DASHBOARD["tiles"],
+                            cols=session.display.get("text_cols"))
+    assert loop_thread.run(session.send_dashboard(msg))
+    assert sim.wait_for(lambda: sim.last_received("dashboard") is not None, timeout=5)
+    assert sim.status()["screen"] == "ready"  # it waits to be opened
+    if sim.board.touch:
+        sim.touch(True, sim.board.width // 2, sim.board.height // 3)
+        for dy in range(0, 120, 20):
+            sim.touch(True, sim.board.width // 2, sim.board.height // 3 + dy)
+            sim.run_for(0.02)
+        sim.touch(False)
+    else:
+        sim.tap("cancel")
+    assert sim.wait_screen("dashboard", timeout=5)
+    sim.run_for(0.2)
+    rgb = sim.rgb888()
+    pixels = {rgb[i:i + 3] for i in range(0, len(rgb), 3)}
+    assert any(p[0] < 120 and 140 < p[1] < 200 and p[2] > 200 for p in pixels)  # the busy session's blue
+    assert any(p[0] > 200 and 150 < p[1] < 200 and p[2] < 90 for p in pixels)  # the waiting one's amber
+    sim.screenshot(tmp_path / f"dashboard-{board}.png")
