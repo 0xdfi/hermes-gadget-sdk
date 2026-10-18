@@ -74,6 +74,47 @@ constexpr InitCommand kInit368[] = {
     {0x29, {}, 0, 0},    // display on
 };
 
+// Panel bring-up for the 410x502 2.06" watch module, following Waveshare's
+// esp32_s3_touch_amoled_2_06 BSP 2.0.0 (commit 9daffb7): the same short table as
+// the 1.8" module with the watch's window (column offset 22, applied per flush
+// through gap_x). Every flush rewrites the window.
+constexpr InitCommand kInit410[] = {
+    {0xFE, {0x00}, 1, 0},
+    {0xC4, {0x80}, 1, 0},
+    {0x3A, {0x55}, 1, 0},  // 16 bits per pixel
+    {0x35, {0x00}, 1, 0},  // tearing effect line on
+    {0x53, {0x20}, 1, 0},  // brightness control on
+    {0x51, {0xFF}, 1, 0},  // brightness
+    {0x63, {0xFF}, 1, 0},
+    {0x2A, {0x00, 0x16, 0x01, 0xAF}, 4, 0},
+    {0x2B, {0x00, 0x00, 0x01, 0xF5}, 4, 0},
+    {0x11, {}, 0, 120},  // sleep out
+    {0x29, {}, 0, 0},    // display on
+};
+
+// Panel bring-up for the 480x480 2.16" development board (CO5300, QSPI),
+// following Waveshare's esp32_s3_touch_amoled_2_16 BSP (v2.0.1): the vendor
+// page, RGB565, tearing, brightness, the full 480x480 window at no column
+// offset (0x0000..0x01DF both axes) and MADCTL 0xA0. This is a square panel,
+// so there are no round margins to blank.
+constexpr InitCommand kInit480[] = {
+    {0x11, {}, 0, 600},  // sleep out first (per the BSP table order)
+    {0xFE, {0x20}, 1, 0},
+    {0x19, {0x10}, 1, 0},
+    {0x1C, {0xA0}, 1, 0},
+    {0xFE, {0x00}, 1, 0},
+    {0xC4, {0x80}, 1, 0},
+    {0x3A, {0x55}, 1, 0},  // 16 bits per pixel
+    {0x35, {0x00}, 1, 0},  // tearing effect line on
+    {0x53, {0x20}, 1, 0},  // brightness control on
+    {0x51, {0xFF}, 1, 0},  // brightness
+    {0x63, {0xFF}, 1, 0},
+    {0x2A, {0x00, 0x00, 0x01, 0xDF}, 4, 0},  // full 480-wide window
+    {0x2B, {0x00, 0x00, 0x01, 0xDF}, 4, 0},  // full 480-tall window
+    {0x36, {0xA0}, 1, 0},  // memory access control
+    {0x29, {}, 0, 600},    // display on
+};
+
 }  // namespace
 
 bool AmoledDisplay::on_trans_done(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t*, void* ctx) {
@@ -141,11 +182,20 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
   if (cfg.panel == AmoledPanel::Co5300_368) {
     init = kInit368;
     init_len = sizeof(kInit368) / sizeof(kInit368[0]);
+  } else if (cfg.panel == AmoledPanel::Co5300_410) {
+    init = kInit410;
+    init_len = sizeof(kInit410) / sizeof(kInit410[0]);
+  } else if (cfg.panel == AmoledPanel::Co5300_480) {
+    init = kInit480;
+    init_len = sizeof(kInit480) / sizeof(kInit480[0]);
   }
   for (size_t i = 0; i < init_len; ++i) {
     command(init[i].cmd, init[i].data, init[i].len);
     if (init[i].delay_ms) vTaskDelay(pdMS_TO_TICKS(init[i].delay_ms));
   }
+  // A timed-out margin transfer may still own bounce_. Leave it untouched and
+  // keep this display out of the HAL instead of starting normal drawing.
+  if (!blank_margins()) return false;
   // Each band's DMA transfer must finish before the bounce buffer is refilled.
   bands_.emplace(
       cfg.height, kBounceRows, 100,
@@ -165,6 +215,34 @@ bool AmoledDisplay::begin(const AmoledConfig& cfg) {
       },
       [this](uint32_t ms) { return xSemaphoreTake(done_, pdMS_TO_TICKS(ms)) == pdTRUE; });
   ESP_LOGI(TAG, "CO5300 %ux%u ready", cfg.width, cfg.height);
+  return true;
+}
+
+// A window shorter than the glass sits gap_y rows down, centred (432 rows on the 1.8"s 448, 486 on
+// the 2.06"s 502).
+// Flushes never write the rows above and below it, and the panel's memory starts out as noise,
+// so they are blanked once here.
+bool AmoledDisplay::blank_margins() {
+  if (cfg_.gap_y <= 0) return true;
+  const int w = cfg_.width, rows = std::min<int>(cfg_.gap_y, kBounceRows);
+  std::memset(bounce_, 0, static_cast<size_t>(w) * rows * 2);
+  const int x0 = cfg_.gap_x, x1 = cfg_.gap_x + w - 1;
+  const uint8_t cols[4] = {static_cast<uint8_t>(x0 >> 8), static_cast<uint8_t>(x0), static_cast<uint8_t>(x1 >> 8),
+                           static_cast<uint8_t>(x1)};
+  for (int top : {0, cfg_.gap_y + cfg_.height}) {
+    for (int y = top; y < top + cfg_.gap_y; y += rows) {
+      const int n = std::min(rows, top + cfg_.gap_y - y), yb = y + n - 1;
+      const uint8_t lines[4] = {static_cast<uint8_t>(y >> 8), static_cast<uint8_t>(y), static_cast<uint8_t>(yb >> 8),
+                                static_cast<uint8_t>(yb)};
+      command(0x2A, cols, 4);
+      command(0x2B, lines, 4);
+      if (esp_lcd_panel_io_tx_color(io_, static_cast<int>(kRamWrite), bounce_, static_cast<size_t>(n) * w * 2) != ESP_OK ||
+          xSemaphoreTake(done_, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW(TAG, "couldn't blank rows %d-%d outside the window", y, yb);
+        return false;
+      }
+    }
+  }
   return true;
 }
 

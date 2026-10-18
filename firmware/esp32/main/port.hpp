@@ -24,6 +24,7 @@
 #include "speaker_pa.hpp"
 #include "speaker_underruns.hpp"
 #include "tag_scanner.hpp"
+#include "wifi_fast.hpp"
 #include "wifi_pick.hpp"
 #include "wifi_power.hpp"
 #include "wifi_retry.hpp"
@@ -154,6 +155,9 @@ class WsTransport final : public hg::Transport {
   // True once if the current connection was lost. Backs up the WsClosed event,
   // which the client may post from the app task itself while the queue is full.
   bool take_lost() { return gens_.take_lost(); }
+  // True when the send task has been stuck on one item for hg::ws::kStuckMs, or
+  // couldn't take a client to close: the transport can't recover without a restart.
+  bool stuck() const;
 
  private:
   static void on_event(void* arg, const char* base, int32_t id, void* data);
@@ -164,6 +168,8 @@ class WsTransport final : public hg::Transport {
   esp_websocket_client_handle_t client_ = nullptr;
   QueueHandle_t tx_ = nullptr;
   hg::ws::Generations gens_;
+  hg::ws::TxWatch watch_;
+  std::atomic<bool> handoff_failed_{false};
   std::string url_, subprotocol_;
   // Fragment reassembly, WebSocket task only: an old client's task can still be
   // delivering a frame after close(), so connect() leaves this alone. Each
@@ -295,6 +301,7 @@ class AmoledDisplay final : public hg::Display {
   void set_backlight(uint8_t percent) override;
 
  private:
+  bool blank_margins();
   static bool on_trans_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t* edata, void* ctx);
   void command(uint8_t cmd, const uint8_t* data, size_t len);
   AmoledConfig cfg_{};
@@ -305,6 +312,15 @@ class AmoledDisplay final : public hg::Display {
   std::optional<hg::BandFlush> bands_;
   bool panel_on_ = true;
 };
+
+// The GPIO interrupt service, installed once for every driver that adds a pin handler: a second
+// install is refused with an error line.
+inline bool gpio_isr_service() {
+  static std::once_flag once;
+  static esp_err_t err = ESP_FAIL;
+  std::call_once(once, [] { err = gpio_install_isr_service(0); });
+  return err == ESP_OK || err == ESP_ERR_INVALID_STATE;  // (installed by someone else: there to use)
+}
 
 // Logs a failed ESP-IDF call. A display's begin() returns false on one, so the
 // gadget runs without a screen instead of rebooting in a loop.
@@ -337,6 +353,8 @@ bool tca9554_reset(i2c_master_bus_handle_t bus, const ExpanderResetConfig& reset
 namespace i2c {
 // The board's shared I2C master bus (created on first use).
 i2c_master_bus_handle_t bus(const I2cBusConfig& cfg);
+// A second bus on the other I2C controller, for a touch controller wired apart.
+i2c_master_bus_handle_t touch_bus(const I2cBusConfig& cfg);
 }
 
 // ES8311 + ES7210 on one duplex I2S bus through esp_codec_dev. Both directions
@@ -432,6 +450,10 @@ class TouchInput {
   static void task(void* arg);
   bool read_touch(TouchSample& out);
   bool begin_box_touch(i2c_master_bus_handle_t bus);
+  void gate_on_int();
+  static void on_int(void* arg);
+  bool may_read(bool was_touching);
+  void wait(uint32_t ms);
   bool read_key(bool& pressed);
   bool sample_encoder(int& direction);
   TouchConfig touch_{};
@@ -439,6 +461,9 @@ class TouchInput {
   i2c_master_dev_handle_t touch_dev_ = nullptr;
   i2c_master_dev_handle_t key_dev_ = nullptr;
   esp_lcd_touch_handle_t managed_touch_ = nullptr;
+  bool int_gated_ = false;                // FT5x06 with INT: read after an edge or with a finger down
+  std::atomic<bool> int_pending_{false};  // an edge since the last read
+  void* task_ = nullptr;                  // the touch task, woken by an edge
   gpio_num_t encoder_a_ = GPIO_NUM_NC;
   gpio_num_t encoder_b_ = GPIO_NUM_NC;
   uint8_t encoder_state_ = 0;
@@ -568,13 +593,19 @@ class Wifi {
   static void on_event(void* arg, const char* base, int32_t id, void* data);
   static esp_err_t setup_http(httpd_req_t* request);
   void join(const std::string& ssid, const std::string& password);
-  bool configure(const std::string& ssid, const std::string& password);
+  // With `aim`, the station joins that access point on its channel without scanning.
+  bool configure(const std::string& ssid, const std::string& password, const hg::WifiFastAp* aim = nullptr);
   void attempt(uint32_t now);
+  void remember_ap();
+  void forget_unsaved_ap();
   void setup_status(std::string status);
   NvsStorage* storage_ = nullptr;
   bool configured_ = false;
   hg::WifiNetworks networks_;
   hg::WifiPick pick_;
+  hg::WifiFastJoin fast_;
+  bool aimed_ = false;      // the station config names one access point (fast_)
+  bool static_ip_ = false;  // DHCP stopped for a reused lease (CONFIG_HG_WIFI_REUSE_IP)
   std::string ssid_, password_;  // what the station is configured for
   bool link_up_ = false, scanning_ = false;
   bool auto_setup_ = false, auto_setup_tried_ = false;
