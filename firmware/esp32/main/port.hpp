@@ -117,6 +117,7 @@ void release(Event& ev);
 class EspSystem final : public hg::System {
  public:
   uint32_t now_ms() override;
+  uint64_t now_us() override;
   void random_bytes(uint8_t* out, size_t len) override;
   void log(hg::LogLevel level, std::string_view message) override;
   // Boards with BoardConfig::light_sleep: keeps the chip out of light sleep
